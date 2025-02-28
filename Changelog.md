@@ -3,7 +3,9 @@
 Language Features:
 
 Compiler Features:
+* Commandline Interface: Add ``--assembly-structure`` option to provide information about assemblies and nested assemblies.
 * ethdebug: Experimental support for instructions and source locations under EOF.
+* Standard JSON Interface: Add ``evm.bytecode.assemblyStructure`` output that provides information about assemblies and nested assemblies.
 
 Bugfixes:
 * Assembler: Fix not using a fixed-width type for IDs being assigned to subassemblies nested more than one level away, resulting in inconsistent `--asm-json` output between target architectures.

@@ -1366,7 +1366,7 @@ LinkerObject const& Assembly::assembleLegacy() const
 		case PushSubSize:
 		{
 			solAssert(item.data() <= std::numeric_limits<SubAssemblyID::ValueType>::max());
-			auto s = subAssemblyById(SubAssemblyID{item.data()})->assemble().bytecode.size();
+			auto s = subAssemblyById(SubAssemblyID{item.data()})->assembleLegacy().bytecode.size();
 			item.setPushedValue(u256(s));
 			unsigned b = std::max<unsigned>(1, numberEncodingSize(s));
 			ret.bytecode.push_back(static_cast<uint8_t>(pushInstruction(b)));
