@@ -69,7 +69,7 @@ private:
 
 	/// Creates a stack tail by JUNKing everything that isn't in the liveness set of current and popping stuff that is
 	/// in the back of `_newTop`.
-	std::vector<Slot> prepareStackTail(std::vector<Slot> const& _current, std::vector<Slot> const& _newTop, std::set<SSACFG::ValueId> const& _liveness) const;
+	static std::vector<Slot> prepareStackTail(std::vector<Slot> const& _current, std::vector<Slot> const& _newTop, std::set<SSACFG::ValueId> const& _liveness);
 
 	SSACFGStackLayout const& run();
 	void visitBlock(SSACFG::BlockId _blockId);

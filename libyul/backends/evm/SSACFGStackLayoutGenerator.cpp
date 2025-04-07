@@ -187,7 +187,7 @@ SSACFGStackLayoutGenerator::prepareStackTail(
 	std::vector<Slot> const& _current,
 	std::vector<Slot> const& _newTop,
 	std::set<SSACFG::ValueId> const& _liveness
-) const
+)
 {
 	auto tail = _current;
 	// keep the top elements if they are the same
@@ -276,7 +276,8 @@ SSACFGStackLayoutGenerator::Stack SSACFGStackLayoutGenerator::visitOperation(
 			nInitialJunk = static_cast<size_t>(std::distance(_inputStack.begin(), it));
 		}
 		auto const tail = pileOfJunk(nInitialJunk);*/
-		auto const tail = prepareStackTail(_inputStack.stackData(), top, {});
+		// auto const tail = prepareStackTail(_inputStack.stackData(), top, operationLiveOut);
+		auto const tail = pileOfJunk(_inputStack.size());
 		// auto const tail = pileOfJunk(_inputStack.numJunkSlots());
 		if constexpr(debugOutput)
 		{
@@ -297,11 +298,11 @@ SSACFGStackLayoutGenerator::Stack SSACFGStackLayoutGenerator::visitOperation(
 	for (size_t i = 0; i < requiredStackTop.size(); ++i)
 		stack.pop();
 	for (auto const& val: operation.outputs)
-		// stack.push(val);
-		if (operationLiveOut.contains(val))
+		stack.push(val);
+		/*if (operationLiveOut.contains(val))
 			stack.push(val);
 		else
-			stack.push(SSACFGJunkSlot{});
+			stack.push(SSACFGJunkSlot{});*/
 	return stack;
 }
 
