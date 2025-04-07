@@ -399,7 +399,7 @@ void SSACFGStackLayoutGenerator::populateStackInFromConditionalJumpExit(
 			auto const targetLiveIn = remainingZeroLiveIn + nonZeroLiveIn;
 			auto const top = remainingZeroLiveInSlots + nonZeroLiveInSlots;
 			auto const tail = prepareStackTail(
-				m_stackLayout[_source].stackOut.stackData(), // current stack
+				pileOfJunk(m_stackLayout[_source].stackOut.stackData().size()), // current stack m_stackLayout[_source].stackOut.stackData()
 				top + std::vector<Slot>{_condJump.condition}, // we will add the condition, no need if its already there
 				targetLiveIn // liveness
 			);
@@ -420,7 +420,7 @@ void SSACFGStackLayoutGenerator::populateStackInFromConditionalJumpExit(
 			m_stackLayout[_condJump.zero].stackIn = Stack(zeroLiveInStackData);
 		else
 		{
-			Stack remainder(m_stackLayout[_source].stackOut.stackData() |
+			/*Stack remainder(m_stackLayout[_source].stackOut.stackData() |
 				ranges::views::transform([&](Slot const& _slot) -> Slot {
 					if (std::holds_alternative<SSACFG::ValueId>(_slot) && !zeroLiveIn.contains(std::get<SSACFG::ValueId>(_slot)))
 						return SSACFGJunkSlot{};
@@ -431,9 +431,9 @@ void SSACFGStackLayoutGenerator::populateStackInFromConditionalJumpExit(
 				m_stackLayout[_source].stackOut.stackData(), // current stack
 				zeroLiveInStackData,
 				zeroLiveIn
-			);
+			);*/
 			m_stackLayout[_condJump.zero].stackIn = Stack(
-				tail + zeroLiveInStackData
+				pileOfJunk(m_stackLayout[_source].stackOut.stackData().size()) + zeroLiveInStackData
 			);
 		}
 		markBlockHasDefinedStackIn(_condJump.zero);
