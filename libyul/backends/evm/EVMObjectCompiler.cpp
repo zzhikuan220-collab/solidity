@@ -100,7 +100,8 @@ void EVMObjectCompiler::run(Object const& _object, bool _optimize, bool const _s
 			std::unique_ptr<ControlFlow> const controlFlow = SSAControlFlowGraphBuilder::build(
 				*_object.analysisInfo,
 				*_object.dialect(),
-				_object.code()->root()
+				_object.code()->root(),
+				true
 			);
 			ControlFlowLiveness const liveness(*controlFlow);
 			stackErrors = SSACFGEVMCodeTransform::run(

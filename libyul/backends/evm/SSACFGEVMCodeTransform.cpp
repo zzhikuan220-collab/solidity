@@ -35,13 +35,15 @@
 #include <range/v3/view/take_last.hpp>
 #include <range/v3/view/zip.hpp>
 
+#include <variant>
+
 using namespace solidity;
 using namespace solidity::yul;
 
 namespace
 {
 
-constexpr bool debugOutput = true;
+constexpr bool debugOutput = false;
 
 SSACFG::LiteralValue resolveLiteralValue(SSACFGEVMCodeTransform::Slot const& _slot, SSACFG const& _cfg)
 {
@@ -240,6 +242,8 @@ SSACFGEVMCodeTransform::SSACFGEVMCodeTransform
 	//m_blockLabels.resize(_cfg.numBlocks());
 	//for (auto const& blockId: m_liveness.topologicalSort().preOrder())
 	//	m_blockLabels[blockId] = m_assembly.newLabelId();
+	if constexpr (debugOutput)
+		std::cout << "Code transform for " << (m_cfg.function ? m_cfg.function->name.str() : "main") << '\n';
 }
 
 void SSACFGEVMCodeTransform::transformFunction(Scope::Function const& _function)
@@ -284,7 +288,8 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 		{
 			std::string operationName = std::visit(util::GenericVisitor(
 				[](SSACFG::Call const& _call) { return _call.function.get().name.str(); },
-				[](SSACFG::BuiltinCall const& _call) { return _call.builtin.get().name; }
+				[](SSACFG::BuiltinCall const& _call) { return _call.builtin.get().name; },
+				[](SSACFG::LiteralAssignment const&) -> std::string { return "assign"; }
 			), operation.kind);
 			std::cout << "\t\t" << operationName << ": " << m_stack.str(m_cfg) << " -> " << operationStackIn.str(m_cfg) << std::endl;
 		}
@@ -443,6 +448,11 @@ void SSACFGEVMCodeTransform::performOperation(SSACFG::Operation const& _operatio
 				m_stack.pop();
 			}
 		},
+		[&](SSACFG::LiteralAssignment const&)
+		{
+			if constexpr (debugOutput)
+				std::cout << "\t\t\tLiteral assignment: " << m_stack.str(m_cfg);
+		}
 	}, _operation.kind);
 	for (size_t i = 0; i < _operation.inputs.size(); ++i)
 		m_stack.pop();

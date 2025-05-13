@@ -40,7 +40,7 @@ static_assert(SSACFGStackShuffler<DanielShuffler<SSACFGStackLayoutGenerator::Sta
 namespace
 {
 
-bool constexpr debugOutput = true;
+bool constexpr debugOutput = false;
 
 std::vector<SSACFGStackLayoutGenerator::Slot> pileOfJunk(size_t const _size)
 {
@@ -142,6 +142,8 @@ ControlFlowLayout SSACFGStackLayoutGenerator::generate(ControlFlowLiveness const
 
 SSACFGStackLayout SSACFGStackLayoutGenerator::generate(SSACFGLiveness const& _cfgLiveness)
 {
+	if constexpr (debugOutput)
+		std::cout << "stack layout for " << (_cfgLiveness.cfg().function ? _cfgLiveness.cfg().function->name.str() : "main graph") << '\n';
 	return SSACFGStackLayoutGenerator{_cfgLiveness}.run();
 }
 
@@ -224,6 +226,8 @@ SSACFGStackLayout const& SSACFGStackLayoutGenerator::run()
 
 void SSACFGStackLayoutGenerator::visitBlock(SSACFG::BlockId const _blockId)
 {
+	if constexpr (debugOutput)
+		std::cout << "\tBlock " << _blockId.value << '\n';
 	yulAssert(!blockIsGenerated(_blockId));
 	yulAssert(blockHasDefinedStackIn(_blockId));
 
@@ -276,14 +280,15 @@ SSACFGStackLayoutGenerator::Stack SSACFGStackLayoutGenerator::visitOperation(
 			nInitialJunk = static_cast<size_t>(std::distance(_inputStack.begin(), it));
 		}
 		auto const tail = pileOfJunk(nInitialJunk);*/
-		// auto const tail = prepareStackTail(_inputStack.stackData(), top, operationLiveOut);
-		auto const tail = pileOfJunk(_inputStack.size());
+		auto const tail = prepareStackTail(_inputStack.stackData(), top, operationLiveOut);
+		// auto const tail = pileOfJunk(_inputStack.size());
 		// auto const tail = pileOfJunk(_inputStack.numJunkSlots());
 		if constexpr(debugOutput)
 		{
 			std::string operationName = std::visit(util::GenericVisitor(
 				[](SSACFG::Call const& _call) { return _call.function.get().name.str(); },
-				[](SSACFG::BuiltinCall const& _call) { return _call.builtin.get().name; }
+				[](SSACFG::BuiltinCall const& _call) { return _call.builtin.get().name; },
+				[](SSACFG::LiteralAssignment const&) -> std::string { return "assign"; }
 			), operation.kind);
 			std::cout << "\t\t" << operationName << "(" << _inputStack.str(m_cfg) << " -> " << Stack(tail+top).str(m_cfg) << ")\n";
 		}
@@ -399,7 +404,7 @@ void SSACFGStackLayoutGenerator::populateStackInFromConditionalJumpExit(
 			auto const targetLiveIn = remainingZeroLiveIn + nonZeroLiveIn;
 			auto const top = remainingZeroLiveInSlots + nonZeroLiveInSlots;
 			auto const tail = prepareStackTail(
-				pileOfJunk(m_stackLayout[_source].stackOut.stackData().size()), // current stack m_stackLayout[_source].stackOut.stackData()
+				m_stackLayout[_source].stackOut.stackData(), // current stack m_stackLayout[_source].stackOut.stackData()
 				top + std::vector<Slot>{_condJump.condition}, // we will add the condition, no need if its already there
 				targetLiveIn // liveness
 			);
