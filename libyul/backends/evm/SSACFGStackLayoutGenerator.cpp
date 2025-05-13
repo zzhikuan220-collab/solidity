@@ -227,7 +227,7 @@ SSACFGStackLayout const& SSACFGStackLayoutGenerator::run()
 void SSACFGStackLayoutGenerator::visitBlock(SSACFG::BlockId const _blockId)
 {
 	if constexpr (debugOutput)
-		std::cout << "\tBlock " << _blockId.value << '\n';
+		std::cout << "\tBlock " << _blockId.value << std::boolalpha << " (needs clean stack = " << requiresCleanStack(_blockId) << ")" << '\n';
 	yulAssert(!blockIsGenerated(_blockId));
 	yulAssert(blockHasDefinedStackIn(_blockId));
 
@@ -471,9 +471,15 @@ SSACFGStackLayoutGenerator::RevertPaths::RevertPaths(SSACFG const& _cfg, Forward
 	SSACFGBridgeFinder const bridgeFinder(_cfg);
 
 	std::vector<SSACFG::BlockId> terminateBlocks;
+	std::vector<SSACFG::BlockId> functionReturns;
 	for (auto const blockIndex: _topologicalSort.preOrder())
-		if (std::holds_alternative<SSACFG::BasicBlock::Terminated>(_cfg.block(SSACFG::BlockId{blockIndex}).exit) || std::holds_alternative<SSACFG::BasicBlock::MainExit>(_cfg.block(SSACFG::BlockId{blockIndex}).exit))
+	{
+		auto const& block = _cfg.block(SSACFG::BlockId{blockIndex});
+		if (block.isTerminationBlock() || block.isMainExitBlock())
 			terminateBlocks.emplace_back(SSACFG::BlockId{blockIndex});
+		if (block.isFunctionReturnBlock())
+			functionReturns.emplace_back(SSACFG::BlockId{blockIndex});
+	}
 
 	for (auto const& terminateBlock: terminateBlocks)
 	{
@@ -484,6 +490,7 @@ SSACFGStackLayoutGenerator::RevertPaths::RevertPaths(SSACFG const& _cfg, Forward
 			auto const blockId = toVisit.back();
 			auto const& block = _cfg.block(blockId);
 			toVisit.pop_back();
+
 			bool const containedInRevertPath = ranges::all_of(block.entries, [&](SSACFG::BlockId const& _entry) { return bridgeFinder.bridgeVertex(_entry); });
 			m_blockIsOnRevertPath[blockId.value] = containedInRevertPath;
 			visited[blockId.value] = true;
@@ -492,6 +499,25 @@ SSACFGStackLayoutGenerator::RevertPaths::RevertPaths(SSACFG const& _cfg, Forward
 
 			for (auto const& entry: block.entries)
 				if (!visited[entry.value] && bridgeFinder.bridgeVertex(entry))
+					toVisit.emplace_back(entry);
+		}
+	}
+
+	for (auto const& returnBlock: functionReturns)
+	{
+		std::vector<uint8_t> visited(_cfg.numBlocks(), false);
+		std::vector toVisit{returnBlock};
+
+		while (!toVisit.empty())
+		{
+			auto const blockId = toVisit.back();
+			auto const& block = _cfg.block(blockId);
+			toVisit.pop_back();
+
+			m_blockIsOnRevertPath[blockId.value] = false;
+			visited[blockId.value] = true;
+			for (auto const& entry: block.entries)
+				if (!visited[entry.value])
 					toVisit.emplace_back(entry);
 		}
 	}

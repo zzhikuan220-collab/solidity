@@ -21,6 +21,9 @@
 
 #pragma once
 
+#include "libsolidity/ast/Types.h"
+
+
 #include <libyul/AST.h>
 #include <libyul/AsmAnalysisInfo.h>
 #include <libyul/Dialect.h>
@@ -140,6 +143,21 @@ public:
 				_callable(jumpTable->defaultCase);
 			}
 		}
+
+		bool isMainExitBlock() const
+		{
+			return std::holds_alternative<MainExit>(exit);
+		}
+
+		bool isTerminationBlock() const
+		{
+			return std::holds_alternative<Terminated>(exit);
+		}
+
+		bool isFunctionReturnBlock() const
+		{
+			return std::holds_alternative<FunctionReturn>(exit);
+		}
 	};
 	BlockId makeBlock(langutil::DebugData::ConstPtr _debugData)
 	{
@@ -150,6 +168,7 @@ public:
 	BasicBlock& block(BlockId _id) { return m_blocks.at(_id.value); }
 	BasicBlock const& block(BlockId _id) const { return m_blocks.at(_id.value); }
 	size_t numBlocks() const { return m_blocks.size(); }
+
 private:
 	std::vector<BasicBlock> m_blocks;
 public:

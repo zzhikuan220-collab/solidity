@@ -352,7 +352,7 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 				auto stackIn = m_stackLayout[_conditionalJump.nonZero].stackIn.stackData();
 				stackIn.emplace_back(_conditionalJump.condition);
 				if constexpr (debugOutput)
-					std::cout << "\t\tJUMPI Creating stack for nonZero layout " << m_stack.str(m_cfg) << " -> " << Stack{stackIn}.str(m_cfg) << std::endl;
+					std::cout << "\t\tJUMPI Creating stack for nonZero layout (to Block " << _conditionalJump.nonZero.value << ") " << m_stack.str(m_cfg) << " -> " << Stack{stackIn}.str(m_cfg) << std::endl;
 				shuffleStack(stackIn, SSACFG::Edge{_block, _conditionalJump.nonZero});
 			}
 
@@ -366,7 +366,7 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 			Stack const nonZeroStack = m_stack;
 
 			if constexpr (debugOutput)
-				std::cout << "\t\tJUMPI Creating stack for zero layout " << m_stack.str(m_cfg) << " -> " << m_stackLayout[_conditionalJump.zero].stackIn.str(m_cfg) << std::endl;
+				std::cout << "\t\tJUMPI Creating stack for zero layout (to Block " << _conditionalJump.zero.value << ") " << m_stack.str(m_cfg) << " -> " << m_stackLayout[_conditionalJump.zero].stackIn.str(m_cfg) << std::endl;
 
 			shuffleStack(
 				m_stackLayout[_conditionalJump.zero].stackIn.stackData(),
