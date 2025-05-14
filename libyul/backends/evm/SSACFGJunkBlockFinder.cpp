@@ -27,7 +27,9 @@ SSACFGJunkBlockFinder::SSACFGJunkBlockFinder(SSACFG const& _cfg, ForwardSSACFGTo
 	m_blockAllowsJunk(_cfg.numBlocks(), false)
 {
 	// Find all bridges, i.e., vertices, which upon removal increase the number of connected components (undirected!).
-	// Translated to SSA CFGs this means: control flow that enters a bridge vertex never returns to a previously visited block
+	// Translated to SSA CFGs this means:
+	//   - control flow that enters a bridge vertex never returns to a previously visited block
+	//   - there is no parallel path to a child of the vertex, ie, adding junk is fine in terms of stack balance
 	SSACFGBridgeFinder const bridgeFinder(_cfg);
 
 	// of the bridge vertices, we have the exclude the ones that can lead to a function return
