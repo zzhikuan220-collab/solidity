@@ -1,0 +1,68 @@
+/*
+	This file is part of solidity.
+
+	solidity is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	solidity is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
+*/
+// SPDX-License-Identifier: GPL-3.0
+
+#include <libyul/backends/evm/SSACFGJunkBlockFinder.h>
+
+#include <libyul/backends/evm/SSACFGBridgeFinder.h>
+
+namespace solidity::yul
+{
+
+SSACFGJunkBlockFinder::SSACFGJunkBlockFinder(SSACFG const& _cfg, ForwardSSACFGTopologicalSort const& _topologicalSort):
+	m_blockAllowsJunk(_cfg.numBlocks(), false)
+{
+	// Find all bridges, i.e., vertices, which upon removal increase the number of connected components (undirected!).
+	// Translated to SSA CFGs this means: control flow that enters a bridge vertex never returns to a previously visited block
+	SSACFGBridgeFinder const bridgeFinder(_cfg);
+
+	// of the bridge vertices, we have the exclude the ones that can lead to a function return
+	std::vector<SSACFG::BlockId> functionReturns;
+	for (auto const blockIndex: _topologicalSort.preOrder())
+	{
+		SSACFG::BlockId const blockId {blockIndex};
+		m_blockAllowsJunk[blockIndex] = bridgeFinder.bridgeVertex(blockId);
+		if (_cfg.block(blockId).isFunctionReturnBlock())
+			functionReturns.emplace_back(SSACFG::BlockId{blockIndex});
+	}
+
+	for (auto const& returnBlock: functionReturns)
+	{
+		std::vector<uint8_t> visited(_cfg.numBlocks(), false);
+		std::vector toVisit{returnBlock};
+
+		while (!toVisit.empty())
+		{
+			auto const blockId = toVisit.back();
+			auto const& block = _cfg.block(blockId);
+			toVisit.pop_back();
+
+			m_blockAllowsJunk[blockId.value] = false;
+			visited[blockId.value] = true;
+			for (auto const& entry: block.entries)
+				if (!visited[entry.value])
+					toVisit.emplace_back(entry);
+		}
+	}
+}
+
+bool SSACFGJunkBlockFinder::blockAllowsAdditionOfJunk(SSACFG::BlockId const& _blockId) const
+{
+	return m_blockAllowsJunk[_blockId.value];
+}
+
+}

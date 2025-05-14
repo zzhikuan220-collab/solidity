@@ -18,7 +18,7 @@
 
 #include <libyul/backends/evm/SSAControlFlowGraph.h>
 
-#include <libyul/backends/evm/SSACFGBridgeFinder.h>
+#include <libyul/backends/evm/SSACFGJunkBlockFinder.h>
 #include <libyul/backends/evm/SSACFGLiveness.h>
 
 #include <libsolutil/StringUtils.h>
@@ -43,11 +43,15 @@ public:
 	SSACFGPrinter(SSACFG const& _cfg, SSACFG::BlockId _blockId, SSACFGLiveness const* _liveness):
 		m_cfg(_cfg), m_functionIndex(0), m_liveness(_liveness)
 	{
+		if (_liveness)
+			m_cfgRevertPaths = std::make_unique<SSACFGJunkBlockFinder>(_cfg, _liveness->topologicalSort());
 		printBlock(_blockId);
 	}
 	SSACFGPrinter(SSACFG const& _cfg, size_t _functionIndex, Scope::Function const& _function, SSACFGLiveness const* _liveness):
 		m_cfg(_cfg), m_functionIndex(_functionIndex), m_liveness(_liveness)
 	{
+		if (_liveness)
+			m_cfgRevertPaths = std::make_unique<SSACFGJunkBlockFinder>(_cfg, _liveness->topologicalSort());
 		printFunction(_function);
 	}
 	friend std::ostream& operator<<(std::ostream& stream, SSACFGPrinter const& printer) {
@@ -135,11 +139,15 @@ private:
 			m_result << fmt::format("Entry{} -> {};\n", m_functionIndex, formatBlockHandle(_id));
 		}
 		{
+			std::string revertPathInfo = "";
+			if (m_cfgRevertPaths)
+				revertPathInfo = m_cfgRevertPaths->blockAllowsAdditionOfJunk(_id) ? "fillcolor=\"#FFEAE9\", style=filled, " : "";
 			if (m_liveness)
 			{
 				m_result << fmt::format(
-					"{} [label=\"\\\nBlock {}; ({}, max {})\\n",
+					"{} [{}label=\"\\\nBlock {}; ({}, max {})\\n",
 					formatBlockHandle(_id),
+					revertPathInfo,
 					_id.value,
 					m_liveness->topologicalSort().preOrderIndexOf(_id.value),
 					m_liveness->topologicalSort().maxSubtreePreOrderIndexOf(_id.value)
@@ -154,7 +162,7 @@ private:
 				);
 			}
 			else
-				m_result << fmt::format("{} [label=\"\\\nBlock {}\\n", formatBlockHandle(_id), _id.value);
+				m_result << fmt::format("{} [{}label=\"\\\nBlock {}\\n", formatBlockHandle(_id), revertPathInfo, _id.value);
 			for (auto const& phi: _block.phis)
 			{
 				auto const* phiValue = std::get_if<SSACFG::PhiValue>(&m_cfg.valueInfo(phi));
@@ -292,6 +300,7 @@ private:
 	}
 
 	SSACFG const& m_cfg;
+	std::unique_ptr<SSACFGJunkBlockFinder> m_cfgRevertPaths;
 	size_t m_functionIndex;
 	SSACFGLiveness const* m_liveness;
 	std::stringstream m_result{};
@@ -306,7 +315,7 @@ std::string SSACFG::toDot(
 {
 	std::ostringstream output;
 	if (_includeDiGraphDefinition)
-		output << "digraph SSACFG {\nnodesep=0.7;\ngraph[fontname=\"DejaVu Sans\"]\nnode[shape=box,fontname=\"DejaVu Sans\"];\n\n";
+		output << "digraph SSACFG {\nnodesep=0.7;\ngraph[fontname=\"DejaVu Sans\", rankdir=LR]\nnode[shape=box,fontname=\"DejaVu Sans\"];\n\n";
 	if (function)
 		output << SSACFGPrinter(*this, _functionIndex ? *_functionIndex : static_cast<size_t>(1), *function, _liveness);
 	else

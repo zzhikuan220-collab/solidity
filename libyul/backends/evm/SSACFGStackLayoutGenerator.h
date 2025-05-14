@@ -18,7 +18,7 @@
 
 #pragma once
 
-#include <libyul/backends/evm/SSACFGRevertPaths.h>
+#include <libyul/backends/evm/SSACFGJunkBlockFinder.h>
 #include <libyul/backends/evm/SSACFGStackLayout.h>
 #include <libyul/backends/evm/SSAControlFlowGraph.h>
 
@@ -85,7 +85,7 @@ private:
 	SSACFGLiveness const& m_liveness;
 	SSACFG const& m_cfg;
 
-	SSACFGRevertPaths m_revertPaths;
+	SSACFGJunkBlockFinder m_junkBlockFinder;
 
 	/// Keeping track of what blocks were already visited. uses uint8 over bool as there is no need to space-optimize.
 	std::vector<std::uint8_t> m_generatedBlocks;

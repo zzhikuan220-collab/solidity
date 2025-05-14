@@ -75,7 +75,7 @@ SSACFGStackLayoutGenerator::SSACFGStackLayoutGenerator(
 ):
 	m_liveness(_liveness),
 	m_cfg(_liveness.cfg()),
-	m_revertPaths(_liveness.cfg(), _liveness.topologicalSort()),
+	m_junkBlockFinder(_liveness.cfg(), _liveness.topologicalSort()),
 	m_generatedBlocks(_liveness.cfg().numBlocks(), false),
 	m_definedStackIn(_liveness.cfg().numBlocks(), false)
 {
@@ -103,7 +103,7 @@ SSACFGStackLayoutGenerator::~SSACFGStackLayoutGenerator() = default;
 
 bool SSACFGStackLayoutGenerator::requiresCleanStack(SSACFG::BlockId const _block) const
 {
-	auto const notOnRevertPath = !m_revertPaths.blockIsOnRevertPath(_block);
+	auto const notOnRevertPath = !m_junkBlockFinder.blockAllowsAdditionOfJunk(_block);
 	return notOnRevertPath;
 }
 

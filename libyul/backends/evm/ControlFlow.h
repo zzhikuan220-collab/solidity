@@ -57,7 +57,7 @@ struct ControlFlow
 		if (_liveness)
 			yulAssert(&_liveness->controlFlow.get() == this);
 		std::ostringstream output;
-		output << "digraph SSACFG {\nnodesep=0.7;\ngraph[fontname=\"DejaVu Sans\"]\nnode[shape=box,fontname=\"DejaVu Sans\"];\n\n";
+		output << "digraph SSACFG {\nnodesep=0.7;\ngraph[rankdir=LR, fontname=\"DejaVu Sans\"]\nnode[shape=box,fontname=\"DejaVu Sans\"];\n\n";
 		output << mainGraph->toDot(false, std::nullopt, _liveness ? _liveness->mainLiveness.get() : nullptr);
 
 		for (size_t index=0; index < functionGraphs.size(); ++index)

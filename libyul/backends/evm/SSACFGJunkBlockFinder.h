@@ -27,14 +27,14 @@
 namespace solidity::yul
 {
 
-class SSACFGRevertPaths
+class SSACFGJunkBlockFinder
 {
 public:
-	explicit SSACFGRevertPaths(SSACFG const& _cfg, ForwardSSACFGTopologicalSort const& _topologicalSort);
+	explicit SSACFGJunkBlockFinder(SSACFG const& _cfg, ForwardSSACFGTopologicalSort const& _topologicalSort);
 	/// Algorithm 1 of https://arxiv.org/pdf/2108.07346
-	bool blockIsOnRevertPath(SSACFG::BlockId const& _blockId) const;
+	bool blockAllowsAdditionOfJunk(SSACFG::BlockId const& _blockId) const;
 private:
-	std::vector<std::uint8_t> m_blockIsOnRevertPath;
+	std::vector<std::uint8_t> m_blockAllowsJunk;
 };
 
 }
