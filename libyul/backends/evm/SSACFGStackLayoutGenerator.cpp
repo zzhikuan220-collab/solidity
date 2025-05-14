@@ -336,7 +336,7 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 			auto const targetLiveIn = remainingZeroLiveIn + nonZeroLiveIn;
 			auto const top = remainingZeroLiveInSlots + nonZeroLiveInSlots;
 			auto const tail = prepareStackTail(
-				sourceStackWithoutJunkTail.stackData(), // current stack m_stackLayout[_source].stackOut.stackData()
+				sourceStackWithoutJunkTail.stackData(),
 				top + std::vector<Slot>{_condJump.condition}, // we will add the condition, no need if its already there
 				targetLiveIn // liveness
 			);
