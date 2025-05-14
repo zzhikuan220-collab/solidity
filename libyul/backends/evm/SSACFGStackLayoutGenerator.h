@@ -80,6 +80,8 @@ private:
 	bool blockHasDefinedStackIn(SSACFG::BlockId _blockId) const;
 	void markBlockHasDefinedStackIn(SSACFG::BlockId _blockId);
 
+	static std::size_t junkTailSize(Stack const& _stack);
+
 	SSACFGLiveness const& m_liveness;
 	SSACFG const& m_cfg;
 

@@ -226,6 +226,19 @@ public:
 	{
 		return static_cast<size_t>(ranges::count_if(m_data, [](Slot const& _slot) { return std::holds_alternative<SSACFGJunkSlot>(_slot); } ));
 	}
+
+	void addJunkTail(std::ptrdiff_t const _numJunk)
+	{
+		yulAssert(_numJunk >= 0);
+		if (_numJunk == 0)
+			return;
+
+		// append junk (so it's at the stack top)
+		m_data.resize(m_data.size() + static_cast<std::size_t>(_numJunk));
+		std::fill_n(m_data.rbegin(), static_cast<std::size_t>(_numJunk), SSACFGJunkSlot{});
+		// rotate to the right by numJunk elements, now they're in the tail
+		std::rotate(m_data.rbegin(), m_data.rbegin() + static_cast<std::ptrdiff_t>(_numJunk), m_data.rend());
+	}
 private:
 	std::vector<Slot> m_data;
 };
