@@ -141,7 +141,7 @@ private:
 		{
 			std::string revertPathInfo = "";
 			if (m_cfgRevertPaths)
-				revertPathInfo = m_cfgRevertPaths->blockAllowsAdditionOfJunk(_id) ? "fillcolor=\"#FFEAE9\", style=filled, " : "";
+				revertPathInfo = m_cfgRevertPaths->blockAllowsAdditionOfJunk(_id) ? "fillcolor=\"#FF746C\", style=filled, " : "";
 			if (m_liveness)
 			{
 				m_result << fmt::format(
