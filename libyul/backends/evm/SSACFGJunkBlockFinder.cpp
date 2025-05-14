@@ -26,6 +26,14 @@ namespace solidity::yul
 SSACFGJunkBlockFinder::SSACFGJunkBlockFinder(SSACFG const& _cfg, ForwardSSACFGTopologicalSort const& _topologicalSort):
 	m_blockAllowsJunk(_cfg.numBlocks(), false)
 {
+	// special case: only one block here, we mark it as junkable in case it's not a function return
+	if (_topologicalSort.preOrder().size() == 1)
+	{
+		SSACFG::BlockId const id {_topologicalSort.preOrder().front()};
+		m_blockAllowsJunk[id.value] = !_cfg.block(id).isFunctionReturnBlock();
+		return;
+	}
+
 	// Find all bridges, i.e., vertices, which upon removal increase the number of connected components (undirected!).
 	// Translated to SSA CFGs this means:
 	//   - control flow that enters a bridge vertex never returns to a previously visited block
