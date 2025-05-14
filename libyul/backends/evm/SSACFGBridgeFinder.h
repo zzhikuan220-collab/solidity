@@ -81,7 +81,6 @@ private:
 
 					// special case: if it's the entry itself, we mark it as bridge vertex (provided correct orientation),
 					// so that functions which do nothing but revert have their whole tree marked as such (sans loops)
-					// todo correct?
 					if (!_parent)
 						m_bridgeVertex[_vertex.value] = edgeVertexToNeighbor;
 					// Since we are not really undirected, check if we don't have a cycle (u -> v and v -> u) and see,

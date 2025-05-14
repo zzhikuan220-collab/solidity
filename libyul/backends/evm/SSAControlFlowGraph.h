@@ -158,6 +158,11 @@ public:
 		{
 			return std::holds_alternative<FunctionReturn>(exit);
 		}
+
+		bool isJumpBlock() const
+		{
+			return std::holds_alternative<Jump>(exit);
+		}
 	};
 	BlockId makeBlock(langutil::DebugData::ConstPtr _debugData)
 	{

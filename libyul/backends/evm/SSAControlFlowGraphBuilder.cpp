@@ -651,9 +651,21 @@ SSACFG::ValueId SSAControlFlowGraphBuilder::addPhiOperands(Scope::Variable const
 	return _phi;
 }
 
-void SSAControlFlowGraphBuilder::writeVariable(Scope::Variable const& _variable, SSACFG::BlockId _block, SSACFG::ValueId _value)
+void SSAControlFlowGraphBuilder::writeVariable(
+	Scope::Variable const& _variable, SSACFG::BlockId _block, SSACFG::ValueId _value)
 {
 	currentDef(_variable, _block) = _value;
+}
+void SSAControlFlowGraphBuilder::eraseEmptyJumpBlocks(SSACFG& _cfg)
+{
+	for (SSACFG::BlockId blockId {0}; blockId.value < _cfg.numBlocks(); ++blockId.value)
+	{
+		auto const& block = _cfg.block(blockId);
+		if (block.operations.empty() && block.isJumpBlock())
+		{
+
+		}
+	}
 }
 
 Scope::Function const& SSAControlFlowGraphBuilder::lookupFunction(YulName _name) const

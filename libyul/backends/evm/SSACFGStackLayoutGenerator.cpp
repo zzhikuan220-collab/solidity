@@ -180,9 +180,6 @@ SSACFGStackLayoutGenerator::Stack SSACFGStackLayoutGenerator::visitOperation(
 			requiredStackTop.emplace_back(SSACFGFunctionReturnLabel{&call->call.get()});
 	requiredStackTop += operation.inputs;
 
-	// todo if we don't require a clean stack, we might as well just bring up the args and leave the rest as-is
-	// auto outputStack = BubbleShuffler<Stack>::shuffle(_inputStack, requiredStackTop, liveOutWithoutOutputs);
-	// auto stackOut = BubbleShuffler<Stack>::shuffle(_inputStack, requiredStackTop, _inputStack.data);
 	auto stack = [&]
 	{
 		auto const inputWithoutJunkTail = Stack({_inputStack.stackData().begin() + inputJunkTailSize, _inputStack.stackData().end()});
@@ -194,21 +191,19 @@ SSACFGStackLayoutGenerator::Stack SSACFGStackLayoutGenerator::visitOperation(
 		}
 
 		auto const top = std::vector(liveOutWithoutOutputs.begin(), liveOutWithoutOutputs.end()) + requiredStackTop;
-		/*size_t nInitialJunk = 0;
-		{
-			auto it = _inputStack.begin();
-			while (it != _inputStack.end() && std::holds_alternative<SSACFGJunkSlot>(*it))
-				++it;
-			nInitialJunk = static_cast<size_t>(std::distance(_inputStack.begin(), it));
-		}
-		auto const tail = pileOfJunk(nInitialJunk);*/
 		auto const tail = prepareStackTail(inputWithoutJunkTail.stackData(), top, operationLiveOut);
-		// auto const tail = pileOfJunk(_inputStack.size());
-		// auto const tail = pileOfJunk(_inputStack.numJunkSlots());
+		std::vector<Slot> junkedInput = inputWithoutJunkTail.stackData();
+		{
+			std::set const topSet (top.begin(), top.end());
+			for (auto& slot: junkedInput)
+				if (!topSet.contains(slot))
+					slot = SSACFGJunkSlot{};
+		}
+
 		auto stackOut = DanielShuffler<Stack>::shuffle(
 			inputWithoutJunkTail,
 			{},
-			tail + top
+			inputWithoutJunkTail.stackData() + top
 		);
 		stackOut.addJunkTail(inputJunkTailSize);
 		return stackOut;
@@ -229,10 +224,6 @@ SSACFGStackLayoutGenerator::Stack SSACFGStackLayoutGenerator::visitOperation(
 		stack.pop();
 	for (auto const& val: operation.outputs)
 		stack.push(val);
-		/*if (operationLiveOut.contains(val))
-			stack.push(val);
-		else
-			stack.push(SSACFGJunkSlot{});*/
 	return stack;
 }
 
