@@ -72,10 +72,13 @@ add_library(yul
 	backends/evm/NoOutputAssembly.cpp
 	backends/evm/OptimizedEVMCodeTransform.cpp
 	backends/evm/OptimizedEVMCodeTransform.h
+	backends/evm/SSACFGBridgeFinder.h
 	backends/evm/SSACFGEVMCodeTransform.cpp
 	backends/evm/SSACFGEVMCodeTransform.h
 	backends/evm/SSACFGLiveness.cpp
 	backends/evm/SSACFGLiveness.h
+	backends/evm/SSACFGRevertPaths.cpp
+	backends/evm/SSACFGRevertPaths.h
 	backends/evm/SSACFGStackShuffler.h
 	backends/evm/SSACFGStackLayout.cpp
 	backends/evm/SSACFGStackLayout.h

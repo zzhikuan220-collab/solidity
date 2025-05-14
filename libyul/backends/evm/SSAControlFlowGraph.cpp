@@ -18,6 +18,7 @@
 
 #include <libyul/backends/evm/SSAControlFlowGraph.h>
 
+#include <libyul/backends/evm/SSACFGBridgeFinder.h>
 #include <libyul/backends/evm/SSACFGLiveness.h>
 
 #include <libsolutil/StringUtils.h>
