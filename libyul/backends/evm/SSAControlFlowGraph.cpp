@@ -139,7 +139,7 @@ private:
 			m_result << fmt::format("Entry{} -> {};\n", m_functionIndex, formatBlockHandle(_id));
 		}
 		{
-			std::string revertPathInfo = "";
+			std::string revertPathInfo;
 			if (m_cfgRevertPaths)
 				revertPathInfo = m_cfgRevertPaths->blockAllowsAdditionOfJunk(_id) ? "fillcolor=\"#FF746C\", style=filled, " : "";
 			if (m_liveness)
