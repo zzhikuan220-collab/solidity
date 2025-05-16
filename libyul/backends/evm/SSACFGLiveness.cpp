@@ -20,6 +20,7 @@
 
 #include <libsolutil/Visitor.h>
 
+#include <range/v3/algorithm/set_algorithm.hpp>
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/reverse.hpp>
@@ -66,6 +67,7 @@ SSACFGLiveness::SSACFGLiveness(SSACFG const& _cfg):
 	m_loopNestingForest(m_topologicalSort),
 	m_liveIns(_cfg.numBlocks()),
 	m_liveOuts(_cfg.numBlocks()),
+	m_used(_cfg.numBlocks()),
 	m_operationLiveOuts(_cfg.numBlocks())
 {
 	runDagDfs();
@@ -140,7 +142,7 @@ void SSACFGLiveness::runDagDfs()
 void SSACFGLiveness::runLoopTreeDfs(size_t const _loopHeader)
 {
 	// SSA Book, Algorithm 9.3
-	if (m_loopNestingForest.loopNodes().count(_loopHeader) > 0)
+	if (m_loopNestingForest.loopNodes().contains(_loopHeader))
 	{
 		// the loop header block id
 		auto const& block = m_cfg.block(SSACFG::BlockId{_loopHeader});
@@ -163,23 +165,26 @@ void SSACFGLiveness::runLoopTreeDfs(size_t const _loopHeader)
 
 void SSACFGLiveness::fillOperationsLiveOut()
 {
-	for (size_t blockIdValue = 0; blockIdValue < m_cfg.numBlocks(); ++blockIdValue)
+	for (SSACFG::BlockId blockId{0}; blockId.value < m_cfg.numBlocks(); ++blockId.value)
 	{
-		SSACFG::BlockId const blockId{blockIdValue};
 		auto const& operations = m_cfg.block(blockId).operations;
-		auto& liveOuts = m_operationLiveOuts[blockIdValue];
+		std::set<SSACFG::ValueId> used;
+		auto& liveOuts = m_operationLiveOuts[blockId.value];
 		liveOuts.resize(operations.size());
 		if (!operations.empty())
 		{
-			auto live = m_liveOuts[blockIdValue] + blockExitValues(blockId);
+			auto live = m_liveOuts[blockId.value] + blockExitValues(blockId);
 			auto rit = liveOuts.rbegin();
 			for (auto const& op: operations | ranges::views::reverse)
 			{
 				*rit = live;
+				auto const operationInputs = op.inputs | ranges::views::filter(literalsFilter(m_cfg)) | ranges::to<std::vector>;
 				live -= op.outputs | ranges::views::filter(literalsFilter(m_cfg)) | ranges::to<std::vector>;
-				live += op.inputs | ranges::views::filter(literalsFilter(m_cfg)) | ranges::to<std::vector>;
+				live += operationInputs;
+				used += operationInputs;
 				++rit;
 			}
 		}
+		ranges::set_intersection(used, m_liveIns[blockId.value], std::inserter(m_used[blockId.value], m_used[blockId.value].end()));
 	}
 }
