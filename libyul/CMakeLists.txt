@@ -77,9 +77,10 @@ add_library(yul
 	backends/evm/SSACFGEVMCodeTransform.h
 	backends/evm/SSACFGLiveness.cpp
 	backends/evm/SSACFGLiveness.h
-		backends/evm/SSACFGJunkBlockFinder.cpp
-		backends/evm/SSACFGJunkBlockFinder.h
+	backends/evm/SSACFGJunkBlockFinder.cpp
+	backends/evm/SSACFGJunkBlockFinder.h
 	backends/evm/SSACFGStackShuffler.h
+	backends/evm/SSACFGStack.h
 	backends/evm/SSACFGStackLayout.cpp
 	backends/evm/SSACFGStackLayout.h
 	backends/evm/SSACFGStackLayoutGenerator.cpp
