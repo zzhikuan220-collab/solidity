@@ -43,6 +43,7 @@ add_executable(isoltest
 	../libyul/Common.cpp
 	../libyul/ControlFlowGraphTest.cpp
 	../libyul/SSAControlFlowGraphTest.cpp
+	../libyul/SSAStackShufflingTest.cpp
 	../libyul/ControlFlowSideEffectsTest.cpp
 	../libyul/EVMCodeTransformTest.cpp
 	../libyul/FunctionSideEffects.cpp

@@ -161,6 +161,8 @@ set(libyul_sources
     libyul/Parser.cpp
     libyul/SSAControlFlowGraphTest.cpp
     libyul/SSAControlFlowGraphTest.h
+    libyul/SSAStackShufflingTest.cpp
+    libyul/SSAStackShufflingTest.h
     libyul/StackLayoutGeneratorTest.cpp
     libyul/StackLayoutGeneratorTest.h
     libyul/StackShufflingTest.cpp
