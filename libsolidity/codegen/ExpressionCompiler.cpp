@@ -32,6 +32,8 @@
 #include <libsolidity/ast/ASTUtils.h>
 #include <libsolidity/ast/TypeProvider.h>
 
+#include <libsolidity/analysis/ConstantEvaluator.h>
+
 #include <libevmasm/GasMeter.h>
 #include <libsolutil/Common.h>
 #include <libsolutil/FunctionSelector.h>
@@ -1522,8 +1524,16 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 			// No code to generate.
 			break;
 		case FunctionType::Kind::ERC7201:
-			solUnimplementedAssert(false, "Codegen does not support erc7201 builtin yet.");
+		{
+			auto typedRational = ConstantEvaluator::tryEvaluate(_functionCall);
+			solAssert(typedRational.has_value());
+			auto rationalValue = typedRational->value;
+			solAssert(rationalValue.denominator() == 1);
+			bigint value = rationalValue.numerator();
+			solAssert(value <= std::numeric_limits<u256>::max());
+			m_context << u256(value);
 			break;
+		}
 		}
 	}
 	return false;
