@@ -104,11 +104,11 @@ void EVMObjectCompiler::run(Object const& _object, bool _optimize, bool const _s
 				true
 			);
 			ControlFlowLiveness const liveness(*controlFlow);
-			stackErrors = SSACFGEVMCodeTransform::run(
+			stackErrors = ssa::SSACFGEVMCodeTransform::run(
 				m_assembly,
 				liveness,
 				context,
-				SSACFGEVMCodeTransform::UseNamedLabels::ForFirstFunctionOfEachName
+				ssa::SSACFGEVMCodeTransform::UseNamedLabels::ForFirstFunctionOfEachName
 			);
 		}
 		if (!stackErrors.empty())

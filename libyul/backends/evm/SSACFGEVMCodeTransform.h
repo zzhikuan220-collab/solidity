@@ -40,11 +40,63 @@ namespace solidity::yul
 struct AsmAnalysisInfo;
 struct StackLayout;
 
+namespace ssa
+{
+struct AssemblyCallbacks
+{
+	void swap(size_t const _depth)
+	{
+		assembly.appendInstruction(evmasm::swapInstruction(static_cast<unsigned>(_depth)));
+	}
+
+	void pop()
+	{
+		assembly.appendInstruction(evmasm::Instruction::POP);
+	}
+
+	void push(StackSlot const& _slot)
+	{
+		std::visit(util::GenericVisitor{
+			[&](SSACFG::ValueId const& _id)
+			{
+				auto const& info = cfg.valueInfo(_id);
+				yulAssert(std::holds_alternative<SSACFG::LiteralValue>(info), fmt::format("Tried bringing up v{}", _id.value));
+				assembly.appendConstant(std::get<SSACFG::LiteralValue>(info).value);
+			},
+			[&](AbstractAssembly::LabelID const _label)
+			{
+				assembly.appendLabelReference(_label);
+			},
+			[&](FunctionReturnLabel const& _label)
+			{
+				auto const* maybeLabel = util::valueOrNullptr(returnLabels, _label.functionCall);
+				yulAssert(maybeLabel);
+				assembly.appendLabelReference(*maybeLabel);
+			},
+			[&](JunkSlot const&)
+			{
+				if (assembly.evmVersion().hasPush0())
+					assembly.appendConstant(0);
+				else
+					assembly.appendInstruction(evmasm::Instruction::CODESIZE);
+			}
+		}, _slot);
+	}
+
+	void dup(size_t const _depth)
+	{
+		assembly.appendInstruction(evmasm::dupInstruction(static_cast<unsigned>(_depth)));
+	}
+
+	SSACFG const& cfg;
+	AbstractAssembly& assembly;
+	std::map<FunctionCall const*, AbstractAssembly::LabelID> const& returnLabels;
+};
+
 class SSACFGEVMCodeTransform
 {
 public:
-	using Stack = SSACFGStackLayoutStack;
-	using Slot = Stack::Slot;
+	using Slot = StackSlot;
 	/// Use named labels for functions 1) Yes and check that the names are unique
 	/// 2) For none of the functions 3) for the first function of each name.
 	enum class UseNamedLabels { YesAndForceUnique, Never, ForFirstFunctionOfEachName };
@@ -77,7 +129,7 @@ private:
 
 	void operator()(SSACFG::BlockId _block);
 	void performOperation(SSACFG::Operation const& _operation);
-	void assertLayoutCompatibility(Stack const& _current, Stack const& _desired) const;
+	void assertLayoutCompatibility(StackData const& _current, StackData const& _desired) const;
 
 	AbstractAssembly::LabelID functionLabel(Scope::Function const& _function) const
 	{
@@ -89,14 +141,15 @@ private:
 	AbstractAssembly& m_assembly;
 	BuiltinContext& m_builtinContext;
 	SSACFG const& m_cfg;
-	SSACFGStackLayout m_stackLayout;
+	SSACFGStackLayout const m_stackLayout;
 	std::vector<StackTooDeepError> m_stackErrors;
 	FunctionLabels const m_functionLabels;
-	Stack m_stack {};
+	Stack<AssemblyCallbacks> m_stack;
 	SSACFG::BlockId m_currentBlock;
 	std::vector<std::uint8_t> m_generatedBlocks;
 	std::vector<AbstractAssembly::LabelID> m_blockLabels;
 	std::map<FunctionCall const*, AbstractAssembly::LabelID> m_returnLabels;
 };
 
+}
 }

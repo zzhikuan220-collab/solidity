@@ -41,11 +41,11 @@ concept SSACFGStackShuffler = requires(
 	{ _shuffler.shuffle(_sourceStack, _targetStackRest, _targetStackTop) } -> std::convertible_to<typename StackShuffler::Stack>;
 };
 
-template<SSACFGStack StackType>
+template<typename StackType>
 struct BubbleShuffler
 {
 	using Stack = StackType;
-	using StackSlot = typename Stack::Slot;
+	using StackSlot = ssa::StackSlot;
 	static Stack shuffle(Stack const& _sourceStack, std::set<StackSlot> const& _targetStackRest, std::vector<StackSlot> const& _targetStackTop)
 	{
 		Stack shuffledStack = _sourceStack;
@@ -123,7 +123,7 @@ struct BubbleShuffler
 
 };
 
-template<SSACFGStack StackType>
+template<typename StackType>
 struct DanielShuffler
 {
 	using Stack = StackType;
@@ -146,7 +146,7 @@ struct DanielShuffler
 				for (auto const x: currentStack)
 					++sourceCounts[x];
 				for (auto const [i, x]: ranges::views::enumerate(targetStack))
-					if (i < currentStack.size() && std::holds_alternative<SSACFGJunkSlot>(targetStack[i]))
+					if (i < currentStack.size() && std::holds_alternative<ssa::JunkSlot>(targetStack[i]))
 						++targetCounts[currentStack[i]];
 					else
 						++targetCounts[x];
@@ -157,7 +157,7 @@ struct DanielShuffler
 				return _source < currentStack.size() &&
 					_target < targetStack.size() &&
 					(
-						std::holds_alternative<SSACFGJunkSlot>(targetStack[_target]) ||
+						std::holds_alternative<ssa::JunkSlot>(targetStack[_target]) ||
 						currentStack[_source] == targetStack[_target]
 					);
 			}
@@ -181,7 +181,7 @@ struct DanielShuffler
 
 			bool targetIsArbitrary(size_t _targetOffset) const
 			{
-				return _targetOffset < targetStack.size() && std::holds_alternative<SSACFGJunkSlot>(targetStack.at(_targetOffset));
+				return _targetOffset < targetStack.size() && std::holds_alternative<ssa::JunkSlot>(targetStack.at(_targetOffset));
 			}
 
 			size_t sourceSize() const { return currentStack.size(); }
@@ -210,7 +210,7 @@ struct DanielShuffler
 	}
 };
 
-template<SSACFGStack StackType>
+template<typename StackType>
 struct BlockStackInShuffler
 {
 	using Stack = StackType;

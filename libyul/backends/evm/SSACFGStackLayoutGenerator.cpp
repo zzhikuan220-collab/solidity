@@ -45,7 +45,7 @@ bool constexpr debugOutput = true;
 
 std::vector<SSACFGStackLayoutGenerator::Slot> pileOfJunk(size_t const _size)
 {
-	return std::vector<SSACFGStackLayoutGenerator::Slot>(_size, SSACFGJunkSlot{});
+	return std::vector<SSACFGStackLayoutGenerator::Slot>(_size, ssa::JunkSlot{});
 }
 
 }
@@ -126,7 +126,7 @@ SSACFGStackLayoutGenerator::prepareStackTail(
 	tail = tail |
 		ranges::views::transform([&](Slot const& _slot) -> Slot {
 			if (std::holds_alternative<SSACFG::ValueId>(_slot) && !_liveness.contains(std::get<SSACFG::ValueId>(_slot)))
-				return SSACFGJunkSlot{};
+				return ssa::JunkSlot{};
 			return _slot;
 		}) |
 		ranges::to<std::vector>;
@@ -177,7 +177,7 @@ SSACFGStackLayoutGenerator::Stack SSACFGStackLayoutGenerator::visitOperation(
 	std::vector<Slot> requiredStackTop;
 	if (auto const* call = std::get_if<SSACFG::Call>(&operation.kind))
 		if (call->canContinue)
-			requiredStackTop.emplace_back(SSACFGFunctionReturnLabel{&call->call.get()});
+			requiredStackTop.emplace_back(ssa::FunctionReturnLabel{&call->call.get()});
 	requiredStackTop += operation.inputs;
 
 	auto stack = [&]

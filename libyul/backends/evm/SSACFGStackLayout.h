@@ -19,15 +19,12 @@
 #pragma once
 
 #include <libyul/backends/evm/AbstractAssembly.h>
+#include <libyul/backends/evm/SSACFGStack.h>
 #include <libyul/backends/evm/SSAControlFlowGraph.h>
 
 #include <libyul/Exceptions.h>
 
-#include <libsolutil/Visitor.h>
-
 #include <range/v3/view/reverse.hpp>
-
-#include <fmt/ranges.h>
 
 #include <map>
 #include <range/v3/algorithm/count_if.hpp>
@@ -63,38 +60,7 @@ private:
 	std::map<SSACFG::ValueId, SSACFG::ValueId> m_reversePhiMap = {};
 };
 
-template<typename Stack>
-concept SSACFGStack = requires(Stack _stack, Stack _otherStack, size_t _depth, typename Stack::Slot _slot)
-{
-	typename Stack::Slot;
-	{ _stack.top() } -> std::convertible_to<typename Stack::Slot>;
-	{ _stack.swap(_depth) } -> std::same_as<void>;
-	{ _stack.pop() } -> std::same_as<void>;
-	{ _stack.push(_slot) } -> std::same_as<void>;
-	{ _stack.pushOrDup(_slot) } -> std::same_as<void>;
-	{ _stack.slotDepth(_slot) } -> std::convertible_to<std::optional<size_t>>;
-	{ _stack.size() } -> std::convertible_to<size_t>;
-	{ _stack[_depth] } -> std::convertible_to<typename Stack::Slot>;
-	// we can iterate over a stack
-	{ ranges::range<ranges::range_value_t<Stack>> };
-	{ ranges::range_value_t<Stack>{} } -> std::convertible_to<typename Stack::Slot>;
-};
-
-
-struct SSACFGFunctionReturnLabel
-{
-	FunctionCall const* functionCall;
-	auto operator<=>(SSACFGFunctionReturnLabel const&) const = default;
-};
-
-struct SSACFGJunkSlot
-{
-	// 	auto operator<=>(const SSACFGJunkSlot&) const = default;
-	bool operator==(SSACFGJunkSlot const&) const { return true; }
-	bool operator<(SSACFGJunkSlot const&) const { return false; }
-};
-
-class SSACFGStackLayoutStack
+/*class SSACFGStackLayoutStack
 {
 public:
 	using Slot = std::variant<SSACFG::ValueId, AbstractAssembly::LabelID, SSACFGFunctionReturnLabel, SSACFGJunkSlot>;
@@ -193,64 +159,19 @@ public:
 
 	std::vector<Slot> const& stackData() const { return m_data; }
 
-	std::string str(SSACFG const& _cfg) const
-	{
-		return format(
-			"[{}]",
-			fmt::join(m_data | ranges::views::transform([&](auto const& _slot) { return slotToString(_cfg, _slot); }), ", ")
-		);
-	}
-	static std::string slotToString(SSACFG const& _cfg, Slot const& _slot)
-	{
-		return std::visit(util::GenericVisitor{
-			[&](SSACFG::ValueId const _value) {
-				return _cfg.valueDescription(_value);
-			},
-			[](AbstractAssembly::LabelID const _label) {
-				return "LABEL[" + std::to_string(_label) + "]";
-			},
-			[](SSACFGFunctionReturnLabel const& _functionReturnLabel)
-			{
-				yulAssert(_functionReturnLabel.functionCall, "Function return label was null.");
-				yulAssert(std::holds_alternative<Identifier>(_functionReturnLabel.functionCall->functionName));
-				return fmt::format("ReturnLabel[{}]", std::get<Identifier>(_functionReturnLabel.functionCall->functionName).name.str());
-			},
-			[](SSACFGJunkSlot const&) -> std::string
-			{
-				return "JUNK";
-			}
-		}, _slot);
-	}
 
-	size_t numJunkSlots() const
-	{
-		return static_cast<size_t>(ranges::count_if(m_data, [](Slot const& _slot) { return std::holds_alternative<SSACFGJunkSlot>(_slot); } ));
-	}
 
-	void addJunkTail(std::ptrdiff_t const _numJunk)
-	{
-		yulAssert(_numJunk >= 0);
-		if (_numJunk == 0)
-			return;
 
-		// append junk (so it's at the stack top)
-		m_data.resize(m_data.size() + static_cast<std::size_t>(_numJunk));
-		std::fill_n(m_data.rbegin(), static_cast<std::size_t>(_numJunk), SSACFGJunkSlot{});
-		// rotate to the right by numJunk elements, now they're in the tail
-		std::rotate(m_data.rbegin(), m_data.rbegin() + static_cast<std::ptrdiff_t>(_numJunk), m_data.rend());
-	}
 private:
 	std::vector<Slot> m_data;
-};
-
-static_assert(SSACFGStack<SSACFGStackLayoutStack>);
+};*/
 
 struct SSACFGStackLayout
 {
 	// each operation has a current stack
-	using Stack = SSACFGStackLayoutStack;
+	using Stack = ssa::StackData;
 	// a slot can be some valueId or a labelId
-	using Slot = Stack::Slot;
+	using Slot = Stack::value_type;
 
 	// Each block has its own layout
 	struct BlockLayout
