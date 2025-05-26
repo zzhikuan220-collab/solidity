@@ -36,6 +36,103 @@
 
 #include <variant>
 
+/*SSACFG::LiteralValue resolveLiteralValue(SSACFGEVMCodeTransform::Slot const& _slot, SSACFG const& _cfg)
+{
+	yulAssert(std::holds_alternative<SSACFG::ValueId>(_slot));
+	auto const& valueId = std::get<SSACFG::ValueId>(_slot);
+	return std::visit(util::GenericVisitor{
+			[&](SSACFG::LiteralValue const& _literal) {
+				return _literal;
+			},
+			[&](auto const&) -> SSACFG::LiteralValue { solAssert(false, fmt::format("Tried bringing up v{}", valueId.value)); }
+	}, _cfg.valueInfo(valueId));
+}
+
+class StackWithAssemblyOps
+{
+public:
+	using DataStack = SSACFGEVMCodeTransform::Stack;
+	using Slot = DataStack::Slot;
+	StackWithAssemblyOps(SSACFG const& _cfg, AbstractAssembly& _assembly, DataStack& _stack, std::map<FunctionCall const*, AbstractAssembly::LabelID> const& _returnLabels):
+ 		m_cfg(_cfg),
+		m_assembly(_assembly),
+		m_dataStack(_stack),
+		m_returnLabels(_returnLabels)
+	{}
+
+	Slot const& top() const { return m_dataStack.top(); }
+	void swap(size_t const _depth)
+	{
+		m_dataStack.swap(_depth);
+		m_assembly.appendInstruction(evmasm::swapInstruction(static_cast<unsigned>(_depth)));
+	}
+	void pop()
+	{
+		m_dataStack.pop();
+		m_assembly.appendInstruction(evmasm::Instruction::POP);
+	}
+	void push(Slot const& _slot)
+	{
+		m_dataStack.push(_slot);
+		m_assembly.appendConstant(resolveLiteralValue(_slot, m_cfg).value);
+	}
+
+	std::optional<size_t> slotDepth(Slot const& _slot) const {
+		return m_dataStack.slotDepth(_slot);
+	}
+
+	size_t size() const { return m_dataStack.size(); }
+
+	Slot const& operator[](size_t const _index) const { return m_dataStack[_index]; }
+
+	void pushOrDup(Slot const& _slot)
+	{
+		std::visit(util::GenericVisitor{
+			[&](SSACFG::ValueId _value) {
+				if (!m_cfg.isLiteralValue(_value))
+				{
+					auto const depth = slotDepth(_slot);
+					yulAssert(depth, fmt::format("Tried bringing up {}", m_cfg.valueDescription(_value)));
+					m_assembly.appendInstruction(evmasm::dupInstruction(static_cast<unsigned>(*depth + 1)));
+					m_dataStack.dup(*depth);
+				}
+				else
+					push(_value);
+			},
+			[&](AbstractAssembly::LabelID const _label) {
+				m_assembly.appendLabelReference(_label);
+			},
+			[&](SSACFGFunctionReturnLabel const& _label)
+			{
+				auto const* maybeLabel = util::valueOrNullptr(m_returnLabels, _label.functionCall);
+				yulAssert(maybeLabel);
+				m_dataStack.push(_label);
+				m_assembly.appendLabelReference(*maybeLabel);
+			},
+			[&](SSACFGJunkSlot const&)
+			{
+				// Note: this will always be popped, so we can push anything.
+				if (m_assembly.evmVersion().hasPush0())
+					m_assembly.appendConstant(0);
+				else
+					m_assembly.appendInstruction(evmasm::Instruction::CODESIZE);
+				m_dataStack.push(SSACFGJunkSlot{});
+			}
+		}, _slot);
+	}
+
+	auto begin() const { return ranges::begin(m_dataStack); }
+	auto end() const { return ranges::end(m_dataStack); }
+private:
+	SSACFG const& m_cfg;
+	AbstractAssembly& m_assembly;
+	DataStack& m_dataStack;
+	std::map<FunctionCall const*, AbstractAssembly::LabelID> const& m_returnLabels;
+};
+static_assert(SSACFGStack<StackWithAssemblyOps>);
+
+}*/
+
 using namespace solidity;
 using namespace solidity::yul;
 using namespace solidity::yul::ssa;
