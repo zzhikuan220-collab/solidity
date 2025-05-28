@@ -53,17 +53,17 @@ struct JunkSlot
 using StackSlot = std::variant<AbstractAssembly::LabelID, SSACFG::ValueId, FunctionReturnLabel, JunkSlot>;
 using StackData = std::vector<StackSlot>;
 
-template<typename StackManipulationCallbacks>
+template<typename StackManipulationCallback>
 concept StackManipulationCallbackConcept = requires(
-	StackManipulationCallbacks _callbacks,
+	StackManipulationCallback _callback,
 	StackSlot _slot,
 	size_t _depth
 )
 {
-	{ _callbacks.swap(_depth) } -> std::same_as<void>;
-	{ _callbacks.dup(_depth) } -> std::same_as<void>;
-	{ _callbacks.push(_slot) } -> std::same_as<void>;
-	{ _callbacks.pop() } -> std::same_as<void>;
+	{ _callback.swap(_depth) } -> std::same_as<void>;
+	{ _callback.dup(_depth) } -> std::same_as<void>;
+	{ _callback.push(_slot) } -> std::same_as<void>;
+	{ _callback.pop() } -> std::same_as<void>;
 };
 
 struct NoOpStackManipulationCallbacks
@@ -75,18 +75,51 @@ struct NoOpStackManipulationCallbacks
 };
 static_assert(StackManipulationCallbackConcept<NoOpStackManipulationCallbacks>);
 
+
+static std::string slotToString(StackSlot const& _slot, SSACFG const& _cfg)
+{
+	return std::visit(util::GenericVisitor{
+		[&](SSACFG::ValueId const _value) {
+			return _cfg.valueDescription(_value);
+		},
+		[](AbstractAssembly::LabelID const _label) {
+			return "LABEL[" + std::to_string(_label) + "]";
+		},
+		[](FunctionReturnLabel const& _functionReturnLabel)
+		{
+			yulAssert(_functionReturnLabel.functionCall, "Function return label was null.");
+			yulAssert(std::holds_alternative<Identifier>(_functionReturnLabel.functionCall->functionName));
+			return fmt::format("ReturnLabel[{}]", std::get<Identifier>(_functionReturnLabel.functionCall->functionName).name.str());
+		},
+		[](JunkSlot const&) -> std::string
+		{
+			return "JUNK";
+		}
+	}, _slot);
+}
+
+
+static std::string stackToString(StackData const& _stackData, SSACFG const& _cfg)
+{
+	return format(
+		"[{}]",
+		fmt::join(_stackData | ranges::views::transform([&](auto const& _slot) { return slotToString(_slot, _cfg); }), ", ")
+	);
+}
+
 template<StackManipulationCallbackConcept Callbacks = NoOpStackManipulationCallbacks>
 class Stack
 {
 public:
 	using Slot = StackSlot;
+	using Data = std::vector<Slot>;
 
 	Stack(
 		StackData _data,
 		Callbacks _callbacks,
 		SSACFG const& _cfg
 	):
-		m_cfg(_cfg),
+		m_cfg(&_cfg),
 		m_data(std::move(_data)),
 		m_callbacks(std::move(_callbacks))
 	{}
@@ -105,25 +138,27 @@ public:
 			m_callbacks.swap(_depth);
 	}
 
+	template<bool callback=true>
 	void pop()
 	{
 		yulAssert(!m_data.empty());
 		m_data.pop_back();
-		if constexpr (!std::is_same_v<Callbacks, NoOpStackManipulationCallbacks>)
+		if constexpr (callback && !std::is_same_v<Callbacks, NoOpStackManipulationCallbacks>)
 			m_callbacks.pop();
 	}
 
+	template<bool callback=true>
 	void push(Slot const& _slot)
 	{
 		m_data.emplace_back(_slot);
-		if constexpr (!std::is_same_v<Callbacks, NoOpStackManipulationCallbacks>)
+		if constexpr (callback && !std::is_same_v<Callbacks, NoOpStackManipulationCallbacks>)
 			m_callbacks.push(_slot);
 	}
 
 	void dup(Slot const& _slot)
 	{
 		std::optional<size_t> const depth = slotDepth(_slot);
-		yulAssert(depth, "Invalid dup");
+		yulAssert(depth, fmt::format("Invalid dup, could not find slot {}", slotToString(_slot, *m_cfg)));
 		m_data.push_back(m_data[m_data.size() - *depth - 1]);
 		if constexpr (!std::is_same_v<Callbacks, NoOpStackManipulationCallbacks>)
 			m_callbacks.dup(*depth + 1);
@@ -154,7 +189,7 @@ public:
 		if (std::holds_alternative<FunctionReturnLabel>(_slot))
 			return true;
 		if (std::holds_alternative<SSACFG::ValueId>(_slot))
-			return m_cfg.isLiteralValue(std::get<SSACFG::ValueId>(_slot));
+			return m_cfg->isLiteralValue(std::get<SSACFG::ValueId>(_slot));
 		return false;
 	}
 
@@ -182,36 +217,16 @@ public:
 
 	std::string str() const
 	{
-		return format(
-			"[{}]",
-			fmt::join(m_data | ranges::views::transform([&](auto const& _slot) { return slotToString(m_cfg, _slot); }), ", ")
-		);
+		return stackToString(m_data, *m_cfg);
 	}
 
-	std::string slotToString(Slot const& _slot)
+	StackData const& data() const
 	{
-		return std::visit(util::GenericVisitor{
-			[&](SSACFG::ValueId const _value) {
-				return m_cfg.valueDescription(_value);
-			},
-			[](AbstractAssembly::LabelID const _label) {
-				return "LABEL[" + std::to_string(_label) + "]";
-			},
-			[](FunctionReturnLabel const& _functionReturnLabel)
-			{
-				yulAssert(_functionReturnLabel.functionCall, "Function return label was null.");
-				yulAssert(std::holds_alternative<Identifier>(_functionReturnLabel.functionCall->functionName));
-				return fmt::format("ReturnLabel[{}]", std::get<Identifier>(_functionReturnLabel.functionCall->functionName).name.str());
-			},
-			[](JunkSlot const&) -> std::string
-			{
-				return "JUNK";
-			}
-		}, _slot);
+		return m_data;
 	}
 
 private:
-	SSACFG const& m_cfg;
+	SSACFG const* m_cfg;
 	StackData m_data;
 	Callbacks m_callbacks;
 };

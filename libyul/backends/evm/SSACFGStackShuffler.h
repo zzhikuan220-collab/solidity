@@ -33,8 +33,7 @@ concept SSACFGStackShuffler = requires(
 	StackShuffler _shuffler,
 	typename StackShuffler::Stack _sourceStack,
 	std::vector<typename StackShuffler::Stack::Slot> _targetStackTop,
-	std::set<typename StackShuffler::Stack::Slot> _targetStackRest,
-	typename StackShuffler::Stack::Slot _slot
+	std::set<typename StackShuffler::Stack::Slot> _targetStackRest
 )
 {
 	typename StackShuffler::Stack;

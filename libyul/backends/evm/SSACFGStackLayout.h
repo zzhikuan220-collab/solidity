@@ -31,7 +31,7 @@
 #include <variant>
 #include <vector>
 
-namespace solidity::yul
+namespace solidity::yul::ssa
 {
 /// If Block `_from` -> Block `_to` and `_to` has phi functions `v_k := phi(..., _from => v_i, ...)`, this transform
 /// pulls values `v_k` back to `v_i`.
@@ -60,116 +60,12 @@ private:
 	std::map<SSACFG::ValueId, SSACFG::ValueId> m_reversePhiMap = {};
 };
 
-/*class SSACFGStackLayoutStack
-{
-public:
-	using Slot = std::variant<SSACFG::ValueId, AbstractAssembly::LabelID, SSACFGFunctionReturnLabel, SSACFGJunkSlot>;
 
-	SSACFGStackLayoutStack() = default;
-	explicit SSACFGStackLayoutStack(std::vector<Slot> _stack): m_data(std::move(_stack)) {}
-
-	void swap(size_t const _depth)
-	{
-		yulAssert(m_data.size() > _depth);
-		std::swap(m_data[m_data.size() - _depth - 1], m_data.back());
-	}
-
-	void pop()
-	{
-		yulAssert(!m_data.empty());
-		m_data.pop_back();
-	}
-
-	void push(Slot const& _value)
-	{
-		m_data.emplace_back(_value);
-	}
-
-	void dup(size_t const _depth)
-	{
-		yulAssert(m_data.size() >= _depth + 1);
-		m_data.push_back(m_data[m_data.size() - _depth - 1]);
-	}
-
-	bool dup(Slot const& _value)
-	{
-		auto depth = slotDepth(_value);
-		if (depth)
-			dup(*depth);
-		return depth.has_value();
-	}
-
-	std::optional<size_t> slotDepth(Slot const& _value) const
-	{
-		auto const offset = util::findOffset(m_data | ranges::views::reverse, _value);
-		if (offset)
-		{
-			yulAssert(m_data.size() >= *offset + 1);
-			yulAssert(m_data[m_data.size() - *offset - 1] == _value);
-		}
-		return offset;
-	}
-
-	void bringUpSlot(Slot const& _slot)
-	{
-		std::visit(util::GenericVisitor{
-			[&](SSACFG::ValueId _value) {
-				if (!dup(_slot))
-					push(_value);
-			},
-			[&](AbstractAssembly::LabelID _label) {
-				m_data.emplace_back(_label);
-			},
-			[&](SSACFGFunctionReturnLabel const& _label)
-			{
-				m_data.emplace_back(_label);
-			},
-			[&](SSACFGJunkSlot const& _junk)
-			{
-				m_data.emplace_back(_junk);
-			}
-		}, _slot);
-	}
-
-	void pushOrDup(Slot const& _slot)
-	{
-		bringUpSlot(_slot);
-	}
-
-	size_t size() const
-	{
-		return m_data.size();
-	}
-
-	Slot const& operator[](size_t const _index) const
-	{
-		return m_data[_index];
-	}
-
-	Slot const& top() const
-	{
-		yulAssert(!m_data.empty());
-		return m_data.back();
-	}
-
-	auto begin() const { return ranges::begin(m_data); }
-	auto end() const { return ranges::end(m_data); }
-
-	auto operator<=>(SSACFGStackLayoutStack const&) const = default;
-
-	std::vector<Slot> const& stackData() const { return m_data; }
-
-
-
-
-private:
-	std::vector<Slot> m_data;
-};*/
 
 struct SSACFGStackLayout
 {
 	// each operation has a current stack
-	using Stack = ssa::StackData;
+	using Stack = StackData;
 	// a slot can be some valueId or a labelId
 	using Slot = Stack::value_type;
 

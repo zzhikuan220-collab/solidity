@@ -37,7 +37,7 @@ using namespace solidity::yul::test;
 
 struct ShufflingTestStack
 {
-	using Slot = std::variant<SSACFG::ValueId, SSACFGJunkSlot>;
+	using Slot = std::variant<SSACFG::ValueId, ssa::JunkSlot>;
 
 	void swap(size_t const _depth)
 	{
@@ -88,7 +88,7 @@ struct ShufflingTestStack
 				if (!dup(_slot))
 					push(_value);
 			},
-			[&](SSACFGJunkSlot const& _junk)
+			[&](ssa::JunkSlot const& _junk)
 			{
 				m_data.emplace_back(_junk);
 			}
@@ -129,7 +129,7 @@ struct ShufflingTestStack
 			[&](SSACFG::ValueId const _value) {
 				return _cfg.valueDescription(_value);
 			},
-			[](SSACFGJunkSlot const&) -> std::string
+			[](ssa::JunkSlot const&) -> std::string
 			{
 				return "JUNK";
 			}

@@ -21,6 +21,7 @@
 #include <libsolutil/CommonData.h>
 
 using namespace solidity::yul;
+using namespace solidity::yul::ssa;
 
 ReversePhiFunctionTransform::ReversePhiFunctionTransform(
 	SSACFG const& _cfg,

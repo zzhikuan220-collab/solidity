@@ -35,7 +35,7 @@ public:
 	explicit IsSSACFGLiteral(SSACFG const& _cfg): m_cfg(_cfg) {}
 
 	bool operator()(SSACFG::ValueId const _valueId) const { return m_cfg.isLiteralValue(_valueId); }
-	bool operator()(SSACFGStackLayout::Slot const& _slot) const
+	bool operator()(ssa::SSACFGStackLayout::Slot const& _slot) const
 	{
 		return std::holds_alternative<SSACFG::ValueId>(_slot) && (*this)(std::get<SSACFG::ValueId>(_slot));
 	}
@@ -46,11 +46,11 @@ private:
 
 class SSACFGStackLayoutGenerator {
 public:
-	using Stack = SSACFGStackLayout::Stack;
-	using Slot = SSACFGStackLayout::Slot;
+	using Stack = ssa::Stack<>;
+	using Slot = ssa::SSACFGStackLayout::Slot;
 
-	static ControlFlowLayout generate(ControlFlowLiveness const& _controlFlowLiveness);
-	static SSACFGStackLayout generate(SSACFGLiveness const& _cfgLiveness);
+	static ssa::ControlFlowLayout generate(ControlFlowLiveness const& _controlFlowLiveness);
+	static ssa::SSACFGStackLayout generate(SSACFGLiveness const& _cfgLiveness);
 private:
 
 	explicit SSACFGStackLayoutGenerator(SSACFGLiveness const& _liveness);
@@ -60,12 +60,12 @@ private:
 	/// in the back of `_newTop`.
 	static std::vector<Slot> prepareStackTail(std::vector<Slot> const& _current, std::vector<Slot> const& _newTop, std::set<SSACFG::ValueId> const& _liveness);
 
-	SSACFGStackLayout const& run();
+	ssa::SSACFGStackLayout const& run();
 	void visitBlock(SSACFG::BlockId _blockId);
-	Stack visitOperation(
+	void propagateStackThroughOperation(
 		SSACFG::BlockId _blockId,
 		size_t _operationIndex,
-		Stack const& _inputStack
+		Stack& _stack
 	);
 
 	void handleBlockSuccessorsStackIn(SSACFG::BlockId _blockId);
@@ -80,7 +80,10 @@ private:
 	bool blockHasDefinedStackIn(SSACFG::BlockId _blockId) const;
 	void markBlockHasDefinedStackIn(SSACFG::BlockId _blockId);
 
-	static std::size_t junkTailSize(Stack const& _stack);
+	static std::size_t junkTailSize(std::vector<Stack::Slot> const& _stackData);
+
+	// todo unify with code transform
+	Stack shuffleStack(Stack const& _source, std::vector<Slot> _target, std::optional<SSACFG::Edge> const& _edge = std::nullopt) const;
 
 	SSACFGLiveness const& m_liveness;
 	SSACFG const& m_cfg;
@@ -91,7 +94,7 @@ private:
 	std::vector<std::uint8_t> m_generatedBlocks;
 	/// Keeping track which block has its input layout defined
 	std::vector<std::uint8_t> m_definedStackIn;
-	SSACFGStackLayout m_stackLayout;
+	ssa::SSACFGStackLayout m_stackLayout;
 };
 
 }

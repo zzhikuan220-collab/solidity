@@ -46,12 +46,12 @@ struct AssemblyCallbacks
 {
 	void swap(size_t const _depth)
 	{
-		assembly.appendInstruction(evmasm::swapInstruction(static_cast<unsigned>(_depth)));
+		assembly->appendInstruction(evmasm::swapInstruction(static_cast<unsigned>(_depth)));
 	}
 
 	void pop()
 	{
-		assembly.appendInstruction(evmasm::Instruction::POP);
+		assembly->appendInstruction(evmasm::Instruction::POP);
 	}
 
 	void push(StackSlot const& _slot)
@@ -59,38 +59,38 @@ struct AssemblyCallbacks
 		std::visit(util::GenericVisitor{
 			[&](SSACFG::ValueId const& _id)
 			{
-				auto const& info = cfg.valueInfo(_id);
+				auto const& info = cfg->valueInfo(_id);
 				yulAssert(std::holds_alternative<SSACFG::LiteralValue>(info), fmt::format("Tried bringing up v{}", _id.value));
-				assembly.appendConstant(std::get<SSACFG::LiteralValue>(info).value);
+				assembly->appendConstant(std::get<SSACFG::LiteralValue>(info).value);
 			},
 			[&](AbstractAssembly::LabelID const _label)
 			{
-				assembly.appendLabelReference(_label);
+				assembly->appendLabelReference(_label);
 			},
 			[&](FunctionReturnLabel const& _label)
 			{
-				auto const* maybeLabel = util::valueOrNullptr(returnLabels, _label.functionCall);
+				auto const* maybeLabel = util::valueOrNullptr(*returnLabels, _label.functionCall);
 				yulAssert(maybeLabel);
-				assembly.appendLabelReference(*maybeLabel);
+				assembly->appendLabelReference(*maybeLabel);
 			},
 			[&](JunkSlot const&)
 			{
-				if (assembly.evmVersion().hasPush0())
-					assembly.appendConstant(0);
+				if (assembly->evmVersion().hasPush0())
+					assembly->appendConstant(0);
 				else
-					assembly.appendInstruction(evmasm::Instruction::CODESIZE);
+					assembly->appendInstruction(evmasm::Instruction::CODESIZE);
 			}
 		}, _slot);
 	}
 
 	void dup(size_t const _depth)
 	{
-		assembly.appendInstruction(evmasm::dupInstruction(static_cast<unsigned>(_depth)));
+		assembly->appendInstruction(evmasm::dupInstruction(static_cast<unsigned>(_depth)));
 	}
 
-	SSACFG const& cfg;
-	AbstractAssembly& assembly;
-	std::map<FunctionCall const*, AbstractAssembly::LabelID> const& returnLabels;
+	SSACFG const* cfg;
+	AbstractAssembly* assembly;
+	std::map<FunctionCall const*, AbstractAssembly::LabelID> const* returnLabels;
 };
 
 class SSACFGEVMCodeTransform
@@ -143,8 +143,9 @@ private:
 	SSACFG const& m_cfg;
 	SSACFGStackLayout const m_stackLayout;
 	std::vector<StackTooDeepError> m_stackErrors;
-	FunctionLabels const m_functionLabels;
+	AssemblyCallbacks m_assemblyCallbacks;
 	Stack<AssemblyCallbacks> m_stack;
+	FunctionLabels const m_functionLabels;
 	SSACFG::BlockId m_currentBlock;
 	std::vector<std::uint8_t> m_generatedBlocks;
 	std::vector<AbstractAssembly::LabelID> m_blockLabels;

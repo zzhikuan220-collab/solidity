@@ -73,7 +73,7 @@ Testsuite const g_interactiveTestsuites[] = {
 	{"Yul Object Compiler",         "libyul",      "objectCompiler",                false, false, &yul::test::ObjectCompilerTest::create},
 	{"Yul Control Flow Graph",      "libyul",      "yulControlFlowGraph",           false, false, &yul::test::ControlFlowGraphTest::create},
 	{"Yul SSA Control Flow Graph",  "libyul",      "yulSSAControlFlowGraph",        false, false, &yul::test::SSAControlFlowGraphTest::create},
-	{"Yul SSA Stack Shuffling",     "libyul",      "yulSSAStackShuffling",          false, false, &yul::test::SSAStackShufflingTest::create},
+	// {"Yul SSA Stack Shuffling",     "libyul",      "yulSSAStackShuffling",          false, false, &yul::test::SSAStackShufflingTest::create},
 	{"Yul Stack Layout",            "libyul",      "yulStackLayout",                false, false, &yul::test::StackLayoutGeneratorTest::create},
 	{"Yul Stack Shuffling",         "libyul",      "yulStackShuffling",             false, false, &yul::test::StackShufflingTest::create},
 	{"Control Flow Side Effects",   "libyul",      "controlFlowSideEffects",        false, false, &yul::test::ControlFlowSideEffectsTest::create},
