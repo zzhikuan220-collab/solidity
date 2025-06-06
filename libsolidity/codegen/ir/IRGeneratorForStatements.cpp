@@ -31,7 +31,6 @@
 #include <libsolidity/codegen/ReturnInfo.h>
 #include <libsolidity/ast/TypeProvider.h>
 #include <libsolidity/ast/ASTUtils.h>
-#include <libsolidity/analysis/ConstantEvaluator.h>
 
 #include <libevmasm/GasMeter.h>
 
@@ -1729,15 +1728,9 @@ void IRGeneratorForStatements::endVisit(FunctionCall const& _functionCall)
 	}
 	case FunctionType::Kind::ERC7201:
 	{
-		solAssert(arguments.size() == 1);
-		auto typedRational = ConstantEvaluator::tryEvaluate(_functionCall);
-		solAssert(typedRational.has_value());
-		auto rationalValue = typedRational->value;
-		solAssert(rationalValue.denominator() == 1);
-		bigint value = rationalValue.numerator();
-		solAssert(value <= std::numeric_limits<u256>::max());
-
-		define(_functionCall) << formatNumber(u256(value)) << "\n";
+		auto compileTimeValue = builtinCompileTimeValue(_functionCall);
+		solAssert(compileTimeValue.has_value());
+		define(_functionCall) << formatNumber(*compileTimeValue) << "\n";
 		break;
 	}
 	default:

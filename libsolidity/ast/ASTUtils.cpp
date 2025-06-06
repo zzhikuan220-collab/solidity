@@ -16,6 +16,7 @@
 */
 // SPDX-License-Identifier: GPL-3.0
 
+#include <libsolidity/analysis/ConstantEvaluator.h>
 #include <libsolidity/ast/AST.h>
 #include <libsolidity/ast/ASTUtils.h>
 #include <libsolidity/ast/ASTVisitor.h>
@@ -135,6 +136,32 @@ u256 layoutBaseForInheritanceHierarchy(ContractDefinition const& _topLevelContra
 		return *storageLayoutSpecifier->annotation().baseSlot;
 
 	return 0;
+}
+
+std::optional<u256> builtinCompileTimeValue(FunctionCall const& _functionCall)
+{
+	if (_functionCall.annotation().compileTimeValue.set())
+		return *_functionCall.annotation().compileTimeValue;
+
+	auto functionType = dynamic_cast<FunctionType const*>(_functionCall.expression().annotation().type);
+	solAssert(functionType);
+	switch (functionType->kind())
+	{
+	case FunctionType::Kind::ERC7201:
+	{
+		auto typedRational = ConstantEvaluator::tryEvaluate(_functionCall);
+		solAssert(typedRational.has_value());
+		auto rationalValue = typedRational->value;
+		solAssert(typedRational->value.denominator() == 1);
+		bigint computedValue = typedRational->value.numerator();
+		solAssert(computedValue <= std::numeric_limits<u256>::max());
+		u256 compileTimeValue = u256(computedValue);
+		_functionCall.annotation().compileTimeValue = compileTimeValue;
+		return std::make_optional(compileTimeValue);
+	}
+	default:
+		return {};
+	}
 }
 
 }

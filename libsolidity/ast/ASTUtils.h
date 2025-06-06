@@ -61,4 +61,9 @@ bigint contractStorageSizeUpperBound(ContractDefinition const& _contract, Variab
 /// Assumes analysis was successful.
 u256 layoutBaseForInheritanceHierarchy(ContractDefinition const& _topLevelContract, DataLocation _location);
 
+/// @returns the compile time value computed for certain builtin functions
+/// If the value is not already computed, uses the constant evaluator to try to
+/// calculate a value and save it in the ast annotation.
+std::optional<u256> builtinCompileTimeValue(FunctionCall const& _functionCall);
+
 }

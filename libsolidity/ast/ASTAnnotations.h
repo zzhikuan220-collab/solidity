@@ -345,6 +345,8 @@ struct FunctionCallAnnotation: ExpressionAnnotation
 	util::SetOnce<FunctionCallKind> kind;
 	/// If true, this is the external call of a try statement.
 	bool tryCall = false;
+	/// Computed value for certain builtin functions
+	util::SetOnce<u256> compileTimeValue;
 };
 
 /// Experimental Solidity annotations.
