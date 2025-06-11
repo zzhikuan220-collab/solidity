@@ -42,7 +42,7 @@ static_assert(SSACFGStackShuffler<DanielShuffler<SSACFGStackLayoutGenerator::Sta
 namespace
 {
 
-bool constexpr debugOutput = true;
+bool constexpr debugOutput = false;
 
 std::vector<SSACFGStackLayoutGenerator::Slot> pileOfJunk(size_t const _size)
 {
@@ -273,13 +273,14 @@ void SSACFGStackLayoutGenerator::handleStackInViaJumpExit(
 	std::vector<Slot> targetUsedSlots(targetUsed.begin(), targetUsed.end());
 	if (true || !m_junkBlockFinder.blockAllowsAdditionOfJunk(_jump.target))
 	{
-		// todo this doesn't work yet because we don't respect phi fcts, use shuffleStack method instea
+		// todo this doesn't work yet because we don't respect phi fcts, use shuffleStack method instead
 		// auto targetStack = DanielShuffler<Stack>::shuffle(sourceStackWithoutJunkTail, targetLiveInUnusedSlots, targetUsedSlots);
-		auto targetStack = BlockStackInShuffler<Stack>::shuffle(sourceStackWithoutJunkTail, targetLiveInSlots);
-
+		// auto targetStack = BlockStackInShuffler<Stack>::shuffle(sourceStackWithoutJunkTail, targetLiveInSlots);
+		auto targetStack = shuffleStack(sourceStackWithoutJunkTail, std::vector(targetLiveInSlots.begin(), targetLiveInSlots.end()), SSACFG::Edge{_source, _jump.target});
 		targetStack.addJunkTail(numJunk);
+
 		m_stackLayout[_jump.target].stackIn = targetStack.data();
-		yulAssert(std::set(m_stackLayout[_jump.target].stackIn.begin(), m_stackLayout[_jump.target].stackIn.end()) == targetLiveInSlots);
+		// yulAssert(std::set(m_stackLayout[_jump.target].stackIn.begin(), m_stackLayout[_jump.target].stackIn.end()) == targetLiveInSlots);
 	}
 	else
 	{

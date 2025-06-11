@@ -101,7 +101,7 @@ void EVMObjectCompiler::run(Object const& _object, bool _optimize, bool const _s
 				*_object.analysisInfo,
 				*_object.dialect(),
 				_object.code()->root(),
-				true
+				false
 			);
 			ControlFlowLiveness const liveness(*controlFlow);
 			stackErrors = ssa::SSACFGEVMCodeTransform::run(

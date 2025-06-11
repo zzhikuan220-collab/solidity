@@ -137,7 +137,7 @@ using namespace solidity;
 using namespace solidity::yul;
 using namespace solidity::yul::ssa;
 
-constexpr bool debugOutput = true;
+constexpr bool debugOutput = false;
 
 std::vector<StackTooDeepError> SSACFGEVMCodeTransform::run(
 	AbstractAssembly& _assembly,
