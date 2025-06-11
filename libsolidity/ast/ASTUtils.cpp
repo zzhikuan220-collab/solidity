@@ -154,7 +154,7 @@ std::optional<u256> builtinCompileTimeValue(FunctionCall const& _functionCall)
 		auto rationalValue = typedRational->value;
 		solAssert(typedRational->value.denominator() == 1);
 		bigint computedValue = typedRational->value.numerator();
-		solAssert(computedValue <= std::numeric_limits<u256>::max());
+		solAssert(0 <= computedValue && computedValue <= std::numeric_limits<u256>::max());
 		u256 compileTimeValue = u256(computedValue);
 		_functionCall.annotation().compileTimeValue = compileTimeValue;
 		return std::make_optional(compileTimeValue);
