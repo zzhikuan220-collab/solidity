@@ -145,11 +145,11 @@ SSACFGStackLayout const& SSACFGStackLayoutGenerator::run()
 void SSACFGStackLayoutGenerator::visitBlock(SSACFG::BlockId const _blockId)
 {
 	if constexpr (debugOutput)
-		std::cout << "\tBlock " << _blockId.value << std::boolalpha << " (junk can be added = " << m_junkBlockFinder.blockAllowsAdditionOfJunk(_blockId) << ", stackIn=" << ssa::Stack(m_stackLayout[_blockId].stackIn, {}, m_cfg).str() << ")" << '\n';
+		std::cout << "\tBlock " << _blockId.value << std::boolalpha << " (junk can be added = " << m_junkBlockFinder.blockAllowsAdditionOfJunk(_blockId) << ", stackIn=" << stackToString(m_stackLayout[_blockId].stackIn, m_cfg) << ")" << '\n';
 	yulAssert(!blockIsGenerated(_blockId));
 	yulAssert(blockHasDefinedStackIn(_blockId));
 
-	Stack currentStack = Stack(m_stackLayout[_blockId].stackIn, {}, m_cfg);
+	Stack currentStack = Stack(m_stackLayout[_blockId].stackIn, {}, {&m_cfg});
 	auto const numOperationsInBlock = m_cfg.block(_blockId).operations.size();
 	m_stackLayout[_blockId].operationIn.resize(numOperationsInBlock);
 	for (size_t operationIndex = 0; operationIndex < numOperationsInBlock; ++operationIndex)
@@ -184,7 +184,7 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 
 	auto stack = [&]
 	{
-		auto const inputWithoutJunkTail = ssa::Stack({_stack.begin() + inputJunkTailSize, _stack.end()}, {}, m_cfg);
+		auto const inputWithoutJunkTail = ssa::Stack({_stack.begin() + inputJunkTailSize, _stack.end()}, {}, {&m_cfg});
 		if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_blockId))
 		{
 			ssa::Stack<> stackOut = DanielShuffler<ssa::Stack<>>::shuffle(inputWithoutJunkTail, liveOutWithoutOutputs, requiredStackTop);
@@ -218,7 +218,7 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 			[](SSACFG::BuiltinCall const& _call) { return _call.builtin.get().name; },
 			[](SSACFG::LiteralAssignment const&) -> std::string { return "assign"; }
 		), operation.kind);
-		std::cout << "\t\t" << operationName << "(" << _stack.str() << " -> " << stack.str() << ")\n";
+		std::cout << "\t\t" << operationName << "(" << stackToString(_stack.data(), m_cfg) << " -> " << stackToString(stack.data(), m_cfg) << ")\n";
 	}
 	m_stackLayout[_blockId].operationIn[_operationIndex] = stack.data();
 
@@ -266,7 +266,7 @@ void SSACFGStackLayoutGenerator::handleStackInViaJumpExit(
 
 	auto const& sourceStackData = m_stackLayout[_source].stackOut;
 	auto numJunk = static_cast<std::ptrdiff_t>(junkTailSize(sourceStackData));
-	Stack const sourceStackWithoutJunkTail = Stack({sourceStackData.begin() + numJunk, sourceStackData.end()}, {}, m_cfg);
+	Stack const sourceStackWithoutJunkTail = Stack({sourceStackData.begin() + numJunk, sourceStackData.end()}, {}, {&m_cfg});
 	std::set<Slot> const targetLiveInSlots(targetLiveIn.begin(), targetLiveIn.end());
 	auto const targetUnused = targetLiveIn - targetUsed;
 	std::set<Slot> const targetLiveInUnusedSlots(targetUnused.begin(), targetUnused.end());
@@ -294,7 +294,7 @@ void SSACFGStackLayoutGenerator::handleStackInViaJumpExit(
 				}) |
 				ranges::to<std::vector>,
 			{},
-			m_cfg
+			{&m_cfg}
 		);
 		auto target = DanielShuffler<Stack>::shuffle(
 			junkedSourceStack,
@@ -435,5 +435,5 @@ SSACFGStackLayoutGenerator::Stack SSACFGStackLayoutGenerator::shuffleStack(Stack
 		{}, transformedTarget
 	);
 	// assertLayoutCompatibility(m_stack.data(), transformedTarget);
-	return Stack(_target, {}, m_cfg);
+	return Stack(_target, {}, {&m_cfg});
 }

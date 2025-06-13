@@ -18,7 +18,6 @@
 
 #pragma once
 
-
 #include <libyul/backends/evm/EVMDialect.h>
 #include <libyul/backends/evm/ControlFlow.h>
 #include <libyul/backends/evm/SSAControlFlowGraph.h>
@@ -26,6 +25,8 @@
 #include <libyul/AST.h>
 #include <libyul/Exceptions.h>
 #include <libyul/Scope.h>
+
+#include <libsolutil/Visitor.h>
 
 #include <vector>
 
@@ -44,6 +45,7 @@ namespace ssa
 {
 struct AssemblyCallbacks
 {
+	using Slot = StackSlot;
 	void swap(size_t const _depth)
 	{
 		assembly->appendInstruction(evmasm::swapInstruction(static_cast<unsigned>(_depth)));
@@ -92,11 +94,13 @@ struct AssemblyCallbacks
 	AbstractAssembly* assembly;
 	std::map<FunctionCall const*, AbstractAssembly::LabelID> const* returnLabels;
 };
+static_assert(StackManipulationCallbackConcept<AssemblyCallbacks>);
 
 class SSACFGEVMCodeTransform
 {
 public:
-	using Slot = StackSlot;
+	using SSACFGStack = Stack<AssemblyCallbacks>;
+	using Slot = SSACFGStack::Slot;
 	/// Use named labels for functions 1) Yes and check that the names are unique
 	/// 2) For none of the functions 3) for the first function of each name.
 	enum class UseNamedLabels { YesAndForceUnique, Never, ForFirstFunctionOfEachName };
@@ -144,7 +148,7 @@ private:
 	SSACFGStackLayout const m_stackLayout;
 	std::vector<StackTooDeepError> m_stackErrors;
 	AssemblyCallbacks m_assemblyCallbacks;
-	Stack<AssemblyCallbacks> m_stack;
+	SSACFGStack m_stack;
 	FunctionLabels const m_functionLabels;
 	SSACFG::BlockId m_currentBlock;
 	std::vector<std::uint8_t> m_generatedBlocks;

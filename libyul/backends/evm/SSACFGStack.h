@@ -18,12 +18,12 @@
 
 #pragma once
 
+#include <libyul/backends/evm/AbstractAssembly.h>
 #include <libyul/backends/evm/SSAControlFlowGraph.h>
 
 #include <libyul/Exceptions.h>
 
 #include <libsolutil/CommonData.h>
-#include <libsolutil/Visitor.h>
 
 #include <range/v3/algorithm/count_if.hpp>
 #include <range/v3/view/reverse.hpp>
@@ -53,75 +53,77 @@ struct JunkSlot
 using StackSlot = std::variant<AbstractAssembly::LabelID, SSACFG::ValueId, FunctionReturnLabel, JunkSlot>;
 using StackData = std::vector<StackSlot>;
 
+template<typename CanBeFreelyGenerated>
+concept CanBeFreelyGeneratedConcept = requires(
+	CanBeFreelyGenerated _canBeFreelyGenerated,
+	typename CanBeFreelyGenerated::Slot _slot
+)
+{
+	{ _canBeFreelyGenerated(_slot) } -> std::same_as<bool>;
+};
+
+template<typename SlotType>
+struct SlotCanBeFreelyGenerated
+{
+	using Slot = SlotType;
+	bool operator()(Slot const& _slot) const
+	{
+		if (std::holds_alternative<SSACFG::ValueId>(_slot))
+			return m_cfg->isLiteralValue(std::get<SSACFG::ValueId>(_slot));
+		return std::holds_alternative<JunkSlot>(_slot) || std::holds_alternative<FunctionReturnLabel>(_slot);
+	}
+
+	SSACFG const* m_cfg;
+};
+static_assert(CanBeFreelyGeneratedConcept<SlotCanBeFreelyGenerated<StackSlot>>);
+
 template<typename StackManipulationCallback>
 concept StackManipulationCallbackConcept = requires(
-	StackManipulationCallback _callback,
-	StackSlot _slot,
+	StackManipulationCallback& _callback,
+	typename StackManipulationCallback::Slot _slot,
 	size_t _depth
 )
 {
+	typename StackManipulationCallback::Slot;
 	{ _callback.swap(_depth) } -> std::same_as<void>;
 	{ _callback.dup(_depth) } -> std::same_as<void>;
 	{ _callback.push(_slot) } -> std::same_as<void>;
 	{ _callback.pop() } -> std::same_as<void>;
 };
 
+template<typename StackSlot>
 struct NoOpStackManipulationCallbacks
 {
+	using Slot = StackSlot;
 	static void swap(size_t) {}
 	static void dup(size_t) {}
-	static void push(StackSlot const&) {}
+	static void push(Slot const&) {}
 	static void pop() {}
 };
-static_assert(StackManipulationCallbackConcept<NoOpStackManipulationCallbacks>);
+static_assert(StackManipulationCallbackConcept<NoOpStackManipulationCallbacks<StackSlot>>);
 
 
-static std::string slotToString(StackSlot const& _slot, SSACFG const& _cfg)
-{
-	return std::visit(util::GenericVisitor{
-		[&](SSACFG::ValueId const _value) {
-			return _cfg.valueDescription(_value);
-		},
-		[](AbstractAssembly::LabelID const _label) {
-			return "LABEL[" + std::to_string(_label) + "]";
-		},
-		[](FunctionReturnLabel const& _functionReturnLabel)
-		{
-			yulAssert(_functionReturnLabel.functionCall, "Function return label was null.");
-			yulAssert(std::holds_alternative<Identifier>(_functionReturnLabel.functionCall->functionName));
-			return fmt::format("ReturnLabel[{}]", std::get<Identifier>(_functionReturnLabel.functionCall->functionName).name.str());
-		},
-		[](JunkSlot const&) -> std::string
-		{
-			return "JUNK";
-		}
-	}, _slot);
-}
+std::string slotToString(StackSlot const& _slot, SSACFG const& _cfg);
+std::string stackToString(StackData const& _stackData, SSACFG const& _cfg);
 
-
-static std::string stackToString(StackData const& _stackData, SSACFG const& _cfg)
-{
-	return format(
-		"[{}]",
-		fmt::join(_stackData | ranges::views::transform([&](auto const& _slot) { return slotToString(_slot, _cfg); }), ", ")
-	);
-}
-
-template<StackManipulationCallbackConcept Callbacks = NoOpStackManipulationCallbacks>
+template<
+	StackManipulationCallbackConcept Callbacks = NoOpStackManipulationCallbacks<StackSlot>,
+	CanBeFreelyGeneratedConcept CanBeFreelyGenerated = SlotCanBeFreelyGenerated<typename Callbacks::Slot>
+>
 class Stack
 {
 public:
-	using Slot = StackSlot;
+	using Slot = typename Callbacks::Slot;
 	using Data = std::vector<Slot>;
 
 	Stack(
-		StackData _data,
+		Data _data,
 		Callbacks _callbacks,
-		SSACFG const& _cfg
+		CanBeFreelyGenerated _canBeFreelyGenerated
 	):
-		m_cfg(&_cfg),
 		m_data(std::move(_data)),
-		m_callbacks(std::move(_callbacks))
+		m_callbacks(std::move(_callbacks)),
+		m_canBeFreelyGenerated(std::move(_canBeFreelyGenerated))
 	{}
 
 	Slot const& top() const
@@ -134,7 +136,7 @@ public:
 	{
 		yulAssert(m_data.size() > _depth);
 		std::swap(m_data[m_data.size() - _depth - 1], m_data.back());
-		if constexpr (!std::is_same_v<Callbacks, NoOpStackManipulationCallbacks>)
+		if constexpr (!std::is_same_v<Callbacks, NoOpStackManipulationCallbacks<Slot>>)
 			m_callbacks.swap(_depth);
 	}
 
@@ -143,7 +145,7 @@ public:
 	{
 		yulAssert(!m_data.empty());
 		m_data.pop_back();
-		if constexpr (callback && !std::is_same_v<Callbacks, NoOpStackManipulationCallbacks>)
+		if constexpr (callback && !std::is_same_v<Callbacks, NoOpStackManipulationCallbacks<Slot>>)
 			m_callbacks.pop();
 	}
 
@@ -151,16 +153,16 @@ public:
 	void push(Slot const& _slot)
 	{
 		m_data.emplace_back(_slot);
-		if constexpr (callback && !std::is_same_v<Callbacks, NoOpStackManipulationCallbacks>)
+		if constexpr (callback && !std::is_same_v<Callbacks, NoOpStackManipulationCallbacks<Slot>>)
 			m_callbacks.push(_slot);
 	}
 
 	void dup(Slot const& _slot)
 	{
 		std::optional<size_t> const depth = slotDepth(_slot);
-		yulAssert(depth, fmt::format("Invalid dup, could not find slot {}", slotToString(_slot, *m_cfg)));
+		yulAssert(depth, fmt::format("Invalid dup, could not find slot"));
 		m_data.push_back(m_data[m_data.size() - *depth - 1]);
-		if constexpr (!std::is_same_v<Callbacks, NoOpStackManipulationCallbacks>)
+		if constexpr (!std::is_same_v<Callbacks, NoOpStackManipulationCallbacks<Slot>>)
 			m_callbacks.dup(*depth + 1);
 	}
 
@@ -184,13 +186,7 @@ public:
 
 	bool canBeFreelyGenerated(Slot const& _slot) const
 	{
-		if (std::holds_alternative<JunkSlot>(_slot))
-			return true;
-		if (std::holds_alternative<FunctionReturnLabel>(_slot))
-			return true;
-		if (std::holds_alternative<SSACFG::ValueId>(_slot))
-			return m_cfg->isLiteralValue(std::get<SSACFG::ValueId>(_slot));
-		return false;
+		return m_canBeFreelyGenerated(_slot);
 	}
 
 	Slot const& operator[](size_t const _index) const { return m_data[_index]; }
@@ -215,20 +211,15 @@ public:
 		std::rotate(m_data.rbegin(), m_data.rbegin() + static_cast<std::ptrdiff_t>(_numJunk), m_data.rend());
 	}
 
-	std::string str() const
-	{
-		return stackToString(m_data, *m_cfg);
-	}
-
-	StackData const& data() const
+	Data const& data() const
 	{
 		return m_data;
 	}
 
 private:
-	SSACFG const* m_cfg;
-	StackData m_data;
+	Data m_data;
 	Callbacks m_callbacks;
+	CanBeFreelyGenerated m_canBeFreelyGenerated;
 };
 
 }

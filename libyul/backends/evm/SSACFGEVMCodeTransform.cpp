@@ -236,7 +236,7 @@ SSACFGEVMCodeTransform::SSACFGEVMCodeTransform
 		.assembly = &_assembly,
 		.returnLabels = &m_returnLabels
 	},
-	m_stack(m_stackLayout.blockLayouts[m_cfg.entry.value].stackIn, m_assemblyCallbacks, _cfg),
+	m_stack(m_stackLayout.blockLayouts[m_cfg.entry.value].stackIn, m_assemblyCallbacks, {&_cfg}),
 	m_functionLabels(std::move(_functionLabels)),
 	m_generatedBlocks(_cfg.numBlocks(), false)
 {
@@ -268,7 +268,7 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 
 	auto const& blockLayout = m_stackLayout[_block];
 	assertLayoutCompatibility(m_stack.data(), blockLayout.stackIn);
-	m_stack = Stack(blockLayout.stackIn, m_assemblyCallbacks, m_cfg); // this can set some stuff to junk
+	m_stack = Stack(blockLayout.stackIn, m_assemblyCallbacks, {&m_cfg}); // this can set some stuff to junk
 	// todo assert on all exits that the stack height is fine
 	yulAssert(static_cast<int>(m_stack.size()) == m_assembly.stackHeight());
 
@@ -291,9 +291,9 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 				[](SSACFG::BuiltinCall const& _call) { return _call.builtin.get().name; },
 				[](SSACFG::LiteralAssignment const&) -> std::string { return "assign"; }
 			), operation.kind);
-			std::cout << "\t\t" << operationName << ": " << m_stack.str() << " -> " << Stack(operationStackIn, {}, m_cfg).str() << std::endl;
+			std::cout << "\t\t" << operationName << ": " << stackToString(m_stack.data(), m_cfg) << " -> " << stackToString(operationStackIn, m_cfg) << std::endl;
 		}
-		m_stack = DanielShuffler<Stack<AssemblyCallbacks>>::shuffle(m_stack, {}, operationStackIn);
+		m_stack = DanielShuffler<SSACFGStack>::shuffle(m_stack, {}, operationStackIn);
 
 		// Assert that we have the inputs of the operation on stack top.
 		yulAssert(m_stack.size() >= operation.inputs.size() + (hasReturnLabel ? 1 : 0));
@@ -301,7 +301,7 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 			m_stack | ranges::views::take_last(operation.inputs.size()),
 			operation.inputs
 		))
-			yulAssert(stackEntry == Stack<AssemblyCallbacks>::Slot{input});
+			yulAssert(stackEntry == Slot{input});
 		if (hasReturnLabel)
 		{
 			auto const returnLabelSlot = *(ranges::rbegin(m_stack) + static_cast<std::ptrdiff_t>(operation.inputs.size()));
@@ -354,7 +354,7 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 				auto stackIn = m_stackLayout[_conditionalJump.nonZero].stackIn;
 				stackIn.emplace_back(_conditionalJump.condition);
 				if constexpr (debugOutput)
-					std::cout << "\t\tJUMPI Creating stack for nonZero layout (to Block " << _conditionalJump.nonZero.value << ") " << m_stack.str() << " -> " << Stack<>{stackIn, {}, m_cfg}.str() << std::endl;
+					std::cout << "\t\tJUMPI Creating stack for nonZero layout (to Block " << _conditionalJump.nonZero.value << ") " << stackToString(m_stack.data(), m_cfg) << " -> " << stackToString(stackIn, m_cfg) << std::endl;
 				shuffleStack(stackIn, SSACFG::Edge{_block, _conditionalJump.nonZero});
 			}
 
@@ -368,7 +368,7 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 			Stack const nonZeroStack = m_stack;
 
 			if constexpr (debugOutput)
-				std::cout << "\t\tJUMPI Creating stack for zero layout (to Block " << _conditionalJump.zero.value << ") " << m_stack.str() << " -> " << ssa::stackToString(m_stackLayout[_conditionalJump.zero].stackIn, m_cfg) << std::endl;
+				std::cout << "\t\tJUMPI Creating stack for zero layout (to Block " << _conditionalJump.zero.value << ") " << stackToString(m_stack.data(), m_cfg) << " -> " << ssa::stackToString(m_stackLayout[_conditionalJump.zero].stackIn, m_cfg) << std::endl;
 
 			shuffleStack(
 				m_stackLayout[_conditionalJump.zero].stackIn,
@@ -421,7 +421,7 @@ void SSACFGEVMCodeTransform::performOperation(SSACFG::Operation const& _operatio
 	std::visit(util::GenericVisitor {
 		[&](SSACFG::BuiltinCall const& _builtin) {
 			if constexpr (debugOutput)
-				std::cout << "\t\t\tBuiltin call: " << _builtin.builtin.get().name << ": " << m_stack.str();
+				std::cout << "\t\t\tBuiltin call: " << _builtin.builtin.get().name << ": " << stackToString(m_stack.data(), m_cfg);
 			m_assembly.setSourceLocation(originLocationOf(_builtin));
 			static_cast<BuiltinFunctionForEVM const&>(_builtin.builtin.get()).generateCode(
 				_builtin.call,
@@ -434,7 +434,7 @@ void SSACFGEVMCodeTransform::performOperation(SSACFG::Operation const& _operatio
 			yulAssert(!!returnLabel == _call.canContinue);
 			if constexpr (debugOutput)
 			{
-				std::cout << "\t\t\tCall: " << _call.function.get().name.str() << " (label=" << functionLabel(_call.function) << ")" << ": " << m_stack.str();
+				std::cout << "\t\t\tCall: " << _call.function.get().name.str() << " (label=" << functionLabel(_call.function) << ")" << ": " << stackToString(m_stack.data(), m_cfg);
 				if (returnLabel)
 					std::cout << ", returnLabel: " << *returnLabel;
 			}
@@ -453,7 +453,7 @@ void SSACFGEVMCodeTransform::performOperation(SSACFG::Operation const& _operatio
 		[&](SSACFG::LiteralAssignment const&)
 		{
 			if constexpr (debugOutput)
-				std::cout << "\t\t\tLiteral assignment: " << m_stack.str();
+				std::cout << "\t\t\tLiteral assignment: " << stackToString(m_stack.data(), m_cfg);
 		}
 	}, _operation.kind);
 	// todo do not use callback here
@@ -463,7 +463,7 @@ void SSACFGEVMCodeTransform::performOperation(SSACFG::Operation const& _operatio
 		m_stack.push<false>(value);
 
 	if constexpr (debugOutput)
-		std::cout << " -> " << m_stack.str() << std::endl;
+		std::cout << " -> " << stackToString(m_stack.data(), m_cfg) << std::endl;
 }
 
 void SSACFGEVMCodeTransform::assertLayoutCompatibility(StackData const& _current, StackData const& _desired) const
@@ -502,5 +502,5 @@ void SSACFGEVMCodeTransform::shuffleStack(std::vector<Slot> _target, std::option
 	);
 	assertLayoutCompatibility(m_stack.data(), transformedTarget);
 	//yulAssert(transformedTarget == m_stack.stackData());
-	m_stack = Stack(_target, m_assemblyCallbacks, m_cfg);
+	m_stack = SSACFGStack(_target, m_assemblyCallbacks, {&m_cfg});
 }
