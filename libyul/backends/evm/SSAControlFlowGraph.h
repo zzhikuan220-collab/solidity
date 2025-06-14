@@ -98,26 +98,26 @@ public:
 		struct MainExit {};
 		struct ConditionalJump
 		{
-			langutil::DebugData::ConstPtr debugData;
+			langutil::DebugData::ConstPtr debugData{};
 			ValueId condition;
 			BlockId nonZero;
 			BlockId zero;
 		};
 		struct Jump
 		{
-			langutil::DebugData::ConstPtr debugData;
+			langutil::DebugData::ConstPtr debugData{};
 			BlockId target;
 		};
 		struct JumpTable
 		{
-			langutil::DebugData::ConstPtr debugData;
+			langutil::DebugData::ConstPtr debugData{};
 			ValueId value;
 			std::map<u256, BlockId> cases;
 			BlockId defaultCase;
 		};
 		struct FunctionReturn
 		{
-			langutil::DebugData::ConstPtr debugData;
+			langutil::DebugData::ConstPtr debugData{};
 			std::vector<ValueId> returnValues;
 		};
 		struct Terminated {};
