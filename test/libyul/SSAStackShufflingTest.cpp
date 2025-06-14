@@ -15,11 +15,16 @@
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#include <memory>
+#pragma GCC diagnostic pop
+
+
 #include <test/libyul/SSAStackShufflingTest.h>
 
 #include <test/Common.h>
 
-#include <libyul/backends/evm/EVMDialect.h>
 #include <libyul/backends/evm/SSACFGStack.h>
 #include <libyul/backends/evm/SSACFGStackLayout.h>
 
@@ -27,226 +32,54 @@
 #include <libsolutil/AnsiColorized.h>
 #include <libsolutil/StringUtils.h>
 
-#include <memory>
-
 using namespace solidity::test;
 using namespace solidity::util;
 using namespace solidity::langutil;
 using namespace solidity::yul;
 using namespace solidity::yul::test;
 
-struct ShufflingTestStack
-{
-	using Slot = std::variant<SSACFG::ValueId, ssa::JunkSlot>;
-
-	void swap(size_t const _depth)
-	{
-		yulAssert(m_data.size() > _depth);
-		std::swap(m_data[m_data.size() - _depth - 1], m_data.back());
-	}
-
-	void pop()
-	{
-		yulAssert(!m_data.empty());
-		m_data.pop_back();
-	}
-
-	void push(Slot const& _value)
-	{
-		m_data.emplace_back(_value);
-	}
-
-	void dup(size_t const _depth)
-	{
-		yulAssert(m_data.size() >= _depth + 1);
-		m_data.push_back(m_data[m_data.size() - _depth - 1]);
-	}
-
-	bool dup(Slot const& _value)
-	{
-		auto depth = slotDepth(_value);
-		if (depth)
-			dup(*depth);
-		return depth.has_value();
-	}
-
-	std::optional<size_t> slotDepth(Slot const& _value) const
-	{
-		auto const offset = findOffset(m_data | ranges::views::reverse, _value);
-		if (offset)
-		{
-			yulAssert(m_data.size() >= *offset + 1);
-			yulAssert(m_data[m_data.size() - *offset - 1] == _value);
-		}
-		return offset;
-	}
-
-	void bringUpSlot(Slot const& _slot)
-	{
-		std::visit(GenericVisitor{
-			[&](SSACFG::ValueId _value) {
-				if (!dup(_slot))
-					push(_value);
-			},
-			[&](ssa::JunkSlot const& _junk)
-			{
-				m_data.emplace_back(_junk);
-			}
-		}, _slot);
-	}
-
-	void pushOrDup(Slot const& _slot)
-	{
-		bringUpSlot(_slot);
-	}
-
-	size_t size() const
-	{
-		return m_data.size();
-	}
-
-	Slot const& operator[](size_t const _index) const
-	{
-		return m_data[_index];
-	}
-
-	Slot const& top() const
-	{
-		yulAssert(!m_data.empty());
-		return m_data.back();
-	}
-
-	std::string str(SSACFG const& _cfg) const
-	{
-		return format(
-			"[{}]",
-			fmt::join(m_data | ranges::views::transform([&](auto const& _slot) { return slotToString(_cfg, _slot); }), ", ")
-		);
-	}
-	static std::string slotToString(SSACFG const& _cfg, Slot const& _slot)
-	{
-		return std::visit(GenericVisitor{
-			[&](SSACFG::ValueId const _value) {
-				return _cfg.valueDescription(_value);
-			},
-			[](ssa::JunkSlot const&) -> std::string
-			{
-				return "JUNK";
-			}
-		}, _slot);
-	}
-
-	auto begin() const { return ranges::begin(m_data); }
-	auto end() const { return ranges::end(m_data); }
-
-	std::vector<Slot> m_data;
-	std::ostringstream& output;
-};
-// static_assert(SSACFGStack<ShufflingTestStack>);
-
-bool SSAStackShufflingTest::parse(std::string const& _source)
+SSAStackShufflingTest::Stack::Data SSAStackShufflingTest::parse(std::string const& _source)
 {
 	CharStream stream(_source, "");
 	Scanner scanner(stream);
 
-	auto expectToken = [&](Token _token)
-	{
-		soltestAssert(
-			scanner.next() == _token,
-			"Invalid token. Expected: \"" + TokenTraits::friendlyName(_token) + "\"."
-        );
-	};
+	Stack::Data stackData;
 
-	auto parseStack = [&](Stack& stack) -> bool
-	{
-		if (scanner.currentToken() != Token::LBrack)
-			return false;
-		scanner.next();
-		while (scanner.currentToken() != Token::RBrack &&
-			   scanner.currentToken() != Token::EOS)
-		{
-			std::string literal = scanner.currentLiteral();
-			if (literal == "RET")
-			{
-				scanner.next();
-				if (scanner.currentToken() == Token::LBrack)
-				{
-					scanner.next();
-					std::string functionName = scanner.currentLiteral();
-					auto call = yul::FunctionCall{
-						{}, yul::Identifier{{}, YulName(functionName)}, {}
-					};
-					stack.emplace_back(FunctionCallReturnLabelSlot{
-						m_functions.insert(
-							make_pair(functionName, call)
-						).first->second
-					});
-					expectToken(Token::RBrack);
-				}
-				else
-				{
-					static Scope::Function function;
-					stack.emplace_back(FunctionReturnLabelSlot{function});
-					continue;
-				}
-			}
-			else if (literal == "TMP")
-			{
-				expectToken(Token::LBrack);
-				scanner.next();
-				std::string functionName = scanner.currentLiteral();
-				auto call = yul::FunctionCall{
-					{}, yul::Identifier{{}, YulName(functionName)}, {}
-				};
-				expectToken(Token::Comma);
-				scanner.next();
-				size_t index = size_t(atoi(scanner.currentLiteral().c_str()));
-				stack.emplace_back(TemporarySlot{
-					m_functions.insert(make_pair(functionName, call)).first->second,
-					index
-				});
-				expectToken(Token::RBrack);
-			}
-			else if (literal.find("0x") != std::string::npos || scanner.currentToken() == Token::Number)
-			{
-				stack.emplace_back(LiteralSlot{u256(literal)});
-			}
-			else if (literal == "JUNK")
-			{
-				stack.emplace_back(JunkSlot());
-			}
-			else if (literal == "GHOST")
-			{
-				expectToken(Token::LBrack);
-				scanner.next(); // read number of ghost variables as ghostVariableId
-				std::string ghostVariableId = scanner.currentLiteral();
-				Scope::Variable ghostVar = Scope::Variable{YulName(literal + "[" + ghostVariableId + "]")};
-				stack.emplace_back(VariableSlot{
-					m_variables.insert(std::make_pair(ghostVar.name, ghostVar)).first->second
-				});
-				expectToken(Token::RBrack);
-			}
-			else
-			{
-				Scope::Variable var = Scope::Variable{YulName(literal)};
-				stack.emplace_back(VariableSlot{
-					m_variables.insert(
-						make_pair(literal, var)
-					).first->second
-				});
-			}
-			scanner.next();
-		}
-		return scanner.currentToken() == Token::RBrack;
-	};
-
-	if (!parseStack(m_sourceStack))
-		return false;
+	if (scanner.currentToken() != Token::LBrack)
+		throw std::runtime_error("Invalid token.");
 	scanner.next();
-	return parseStack(m_targetStack);
+	while (scanner.currentToken() != Token::RBrack &&
+		   scanner.currentToken() != Token::EOS)
+	{
+		std::string literal = scanner.currentLiteral();
+		if (literal.find("0x") != std::string::npos || scanner.currentToken() == Token::Number)
+			stackData.emplace_back(m_cfg->newLiteral(DebugData::create(), u256(literal)));
+		else if (literal == "JUNK")
+			stackData.emplace_back(ssa::JunkSlot{});
+		else
+			stackData.emplace_back(m_cfg->newVariable({0}));
+		scanner.next();
+	}
+	if (scanner.currentToken() != Token::RBrack)
+		throw std::runtime_error("Invalid token.");
+
+	scanner.next();
+
+	return stackData;
 }
 
-SSAStackShufflingTest::SSAStackShufflingTest(std::string const& _filename): TestCase(_filename)
+SSAStackShufflingTest::SSAStackShufflingTest(std::string const& _filename):
+	TestCase(_filename),
+	m_cfg([]
+	{
+		auto cfg = std::make_unique<SSACFG>();
+		cfg->debugData = DebugData::create();
+		cfg->entry = cfg->makeBlock(DebugData::create());
+		cfg->block(cfg->entry).exit = SSACFG::BasicBlock::MainExit{};
+		return cfg;
+	}()),
+	m_sourceStack(parse(m_reader.source()), {}, {&*m_cfg}),
+	m_targetStack(parse(m_reader.source()), {}, {&*m_cfg})
 {
 	processSettings();
 	m_source = m_reader.source();
