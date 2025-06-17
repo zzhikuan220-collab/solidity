@@ -20,10 +20,12 @@
 
 #include <libyul/backends/evm/StackHelpers.h>
 
-#include <concepts>
 #include <range/v3/algorithm/find.hpp>
 #include <range/v3/algorithm/find_end.hpp>
 #include <range/v3/algorithm/find_if_not.hpp>
+#include <range/v3/view/concat.hpp>
+
+#include <concepts>
 
 namespace solidity::yul
 {
@@ -206,6 +208,185 @@ struct DanielShuffler
 		auto const targetStack = std::vector(_targetStackTail.begin(), _targetStackTail.end()) + _targetStackTop;
 		Shuffler<ShuffleOperations>::shuffle(shuffledStack, targetStack);
 		return shuffledStack;
+	}
+};
+
+template<typename StackType>
+struct BlockForwardShuffler
+{
+	using Stack = StackType;
+	using SourceSlot = typename Stack::Slot;
+	using TargetSlot = typename Stack::Slot;
+	static void shuffle(
+		Stack& _sourceStack,
+		std::set<SourceSlot> const& _operationLiveOutWithoutOutputs,
+		std::vector<SourceSlot> const& _requiredStackTop
+	)
+	{
+		struct ShuffleOperations
+		{
+			size_t const reachableStackDepth = 16;
+			Stack& currentStack;
+			std::map<SourceSlot, size_t> sourceCounts;
+			std::map<TargetSlot, size_t> targetCounts;
+			std::vector<SourceSlot> const& targetStackTop;
+			std::set<SourceSlot> unassignedLiveOuts;
+			std::vector<std::optional<SourceSlot>> liveOutAssignment;
+
+			ShuffleOperations(
+				Stack& _currentStack,
+				std::vector<SourceSlot> const& _targetStackTop,
+				std::set<SourceSlot> const& _operationLiveOutWithoutOutputs
+			):
+				currentStack(_currentStack),
+				targetStackTop(_targetStackTop),
+				liveOutAssignment(_operationLiveOutWithoutOutputs.size(), std::nullopt)
+			{
+				for (auto const x: currentStack)
+					++sourceCounts[x];
+
+				for (auto const& slot: ranges::views::concat(_targetStackTop, _operationLiveOutWithoutOutputs))
+				{
+					yulAssert(!std::holds_alternative<solidity::yul::ssa::JunkSlot>(slot));
+					++targetCounts[slot];
+				}
+
+				std::set<SourceSlot> usedLiveOuts;
+				for (size_t i = 0; i < _operationLiveOutWithoutOutputs.size() && i < currentStack.size(); ++i)
+				{
+					auto const& currentSlot = currentStack[i];
+					if (
+						auto it = _operationLiveOutWithoutOutputs.find(currentSlot);
+						it != _operationLiveOutWithoutOutputs.end() && !usedLiveOuts.contains(currentSlot)
+					)
+					{
+						liveOutAssignment[i] = currentSlot;
+						usedLiveOuts.insert(currentSlot);
+					}
+				}
+				unassignedLiveOuts = _operationLiveOutWithoutOutputs - usedLiveOuts;
+			}
+
+			bool isInTargetStackTop(size_t const _targetSlot) const
+			{
+				return _targetSlot >= liveOutAssignment.size();
+			}
+
+			bool isCompatible(size_t _source, size_t _target) const
+			{
+				if (_source >= currentStack.size() || _target >= liveOutAssignment.size() + targetStackTop.size())
+					return false;
+
+				if (isInTargetStackTop(_target))
+					return currentStack[_source] == targetStackTop[_target - liveOutAssignment.size()];
+
+				if (liveOutAssignment[_target])
+					return *liveOutAssignment[_target] == currentStack[_source];
+
+				// if we are not in the target top, check if there is any other source -> target
+				return unassignedLiveOuts.contains(currentStack[_source]);
+			}
+
+			bool sourceIsSame(size_t _sourceOffset1, size_t _sourceOffset2) const
+			{
+				return
+					_sourceOffset1 < currentStack.size() &&
+					_sourceOffset2 < currentStack.size() &&
+					currentStack[_sourceOffset1] == currentStack[_sourceOffset2];
+			}
+
+			int sourceMultiplicity(size_t _sourceOffset) const
+			{
+				auto const& slot = currentStack[_sourceOffset];
+				return
+					static_cast<int>(solidity::util::valueOrDefault(targetCounts, slot, static_cast<size_t>(0))) -
+					static_cast<int>(sourceCounts.at(slot));
+			}
+
+			int targetMultiplicity(size_t _targetOffset) const
+			{
+				if (isInTargetStackTop(_targetOffset))
+				{
+					auto const& slot = targetStackTop[_targetOffset - liveOutAssignment.size()];
+					return
+						static_cast<int>(targetCounts.at(slot)) -
+						static_cast<int>(solidity::util::valueOrDefault(sourceCounts, slot, static_cast<size_t>(0)));
+				}
+
+				if (liveOutAssignment[_targetOffset])
+				{
+					auto const& slot = *liveOutAssignment[_targetOffset];
+					return
+						static_cast<int>(targetCounts.at(slot)) -
+						static_cast<int>(solidity::util::valueOrDefault(sourceCounts, slot, static_cast<size_t>(0)));
+				}
+
+				// we have an unassigned target offset, let's find the max multiplicity of the unassigned
+				int max = 0;
+				for (auto const& slot: unassignedLiveOuts)
+					max = std::max(max, static_cast<int>(targetCounts.at(slot)) - static_cast<int>(solidity::util::valueOrDefault(sourceCounts, slot, static_cast<size_t>(0))));
+				return max;
+			}
+
+			bool targetIsArbitrary(size_t _targetOffset) const
+			{
+				if (_targetOffset >= targetSize())
+					return false;
+
+				if (isInTargetStackTop(_targetOffset))
+					return std::holds_alternative<solidity::yul::ssa::JunkSlot>(targetStackTop[_targetOffset - liveOutAssignment.size()]);
+
+				// no junk in live out tail
+				return false;
+			}
+
+			size_t sourceSize() const { return currentStack.size(); }
+			size_t targetSize() const { return targetStackTop.size() + liveOutAssignment.size(); }
+
+			void swap(size_t _depth)
+			{
+				currentStack.swap(_depth);
+			}
+
+			void pop()
+			{
+				currentStack.pop();
+			}
+
+			void pushOrDupTarget(size_t _targetOffset)
+			{
+				if (isInTargetStackTop(_targetOffset))
+				{
+					auto const& slot = targetStackTop[_targetOffset - liveOutAssignment.size()];
+					currentStack.pushOrDup(slot);
+					return;
+				}
+
+				if (liveOutAssignment[_targetOffset])
+				{
+					auto const& slot = *liveOutAssignment[_targetOffset];
+					currentStack.pushOrDup(slot);
+					return;
+				}
+
+				// we have an unassigned target offset, let's find the max multiplicity of the unassigned
+				int max = 0;
+				std::optional<SourceSlot> maxSlot = std::nullopt;
+				for (auto const& slot: unassignedLiveOuts)
+				{
+					auto delta = static_cast<int>(targetCounts.at(slot)) - static_cast<int>(solidity::util::valueOrDefault(sourceCounts, slot, static_cast<size_t>(0)));
+					if (delta > max)
+					{
+						max = std::max(max, delta);
+						maxSlot = slot;
+					}
+				}
+				yulAssert(maxSlot);
+				currentStack.pushOrDup(*maxSlot);
+			}
+		};
+
+		Shuffler<ShuffleOperations>::shuffle(_sourceStack, _requiredStackTop, _operationLiveOutWithoutOutputs);
 	}
 };
 

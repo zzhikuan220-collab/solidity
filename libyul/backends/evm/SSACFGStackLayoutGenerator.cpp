@@ -42,7 +42,7 @@ static_assert(SSACFGStackShuffler<DanielShuffler<SSACFGStackLayoutGenerator::Sta
 namespace
 {
 
-bool constexpr debugOutput = false;
+bool constexpr debugOutput = true;
 
 std::vector<SSACFGStackLayoutGenerator::Slot> pileOfJunk(size_t const _size)
 {
@@ -184,31 +184,15 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 
 	auto stack = [&]
 	{
-		auto const inputWithoutJunkTail = ssa::Stack({_stack.begin() + inputJunkTailSize, _stack.end()}, {}, {&m_cfg});
 		if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_blockId))
 		{
-			ssa::Stack<> stackOut = DanielShuffler<ssa::Stack<>>::shuffle(inputWithoutJunkTail, liveOutWithoutOutputs, requiredStackTop);
-			stackOut.addJunkTail(inputJunkTailSize);
-			return stackOut;
+			auto inputWithoutJunkTail = Stack({_stack.begin() + inputJunkTailSize, _stack.end()}, {}, {&m_cfg});
+			BlockForwardShuffler<Stack>::shuffle(inputWithoutJunkTail, liveOutWithoutOutputs, requiredStackTop);
+			inputWithoutJunkTail.addJunkTail(inputJunkTailSize);
+			return inputWithoutJunkTail;
 		}
 
-		auto const top = std::vector(liveOutWithoutOutputs.begin(), liveOutWithoutOutputs.end()) + requiredStackTop;
-		auto const tail = prepareStackTail(inputWithoutJunkTail.data(), top, operationLiveOut);
-		std::vector<Slot> junkedInput = inputWithoutJunkTail.data();
-		{
-			std::set const topSet (top.begin(), top.end());
-			for (auto& slot: junkedInput)
-				if (!topSet.contains(slot))
-					slot = ssa::JunkSlot{};
-		}
-
-		auto stackOut = DanielShuffler<ssa::Stack<>>::shuffle(
-			inputWithoutJunkTail,
-			{},
-			tail + top
-		);
-		stackOut.addJunkTail(inputJunkTailSize);
-		return stackOut;
+		return Stack{_stack.data() + requiredStackTop, {}, {&m_cfg}};
 	}();
 
 	if constexpr(debugOutput)
@@ -274,8 +258,8 @@ void SSACFGStackLayoutGenerator::handleStackInViaJumpExit(
 	if (true || !m_junkBlockFinder.blockAllowsAdditionOfJunk(_jump.target))
 	{
 		// auto targetStack = DanielShuffler<Stack>::shuffle(sourceStackWithoutJunkTail, targetLiveInUnusedSlots, targetUsedSlots);
-		// auto targetStack = BlockStackInShuffler<Stack>::shuffle(sourceStackWithoutJunkTail, targetLiveInSlots);
-		auto targetStack = shuffleStack(sourceStackWithoutJunkTail, std::vector(targetLiveInSlots.begin(), targetLiveInSlots.end()), SSACFG::Edge{_source, _jump.target});
+		auto targetStack = BlockStackInShuffler<Stack>::shuffle(sourceStackWithoutJunkTail, targetLiveInSlots);
+		// auto targetStack = shuffleStack(sourceStackWithoutJunkTail, std::vector(targetLiveInSlots.begin(), targetLiveInSlots.end()), SSACFG::Edge{_source, _jump.target});
 		targetStack.addJunkTail(numJunk);
 
 		m_stackLayout[_jump.target].stackIn = targetStack.data();
@@ -283,7 +267,28 @@ void SSACFGStackLayoutGenerator::handleStackInViaJumpExit(
 	}
 	else
 	{
-		// todo do i even need this? let's just bring the stuff we need up as in the first branch. evaluate which one is more efficient.
+		/*m_stackLayout[_jump.target].stackIn = sourceStackData;
+		for (SSACFG::ValueId phiId: m_cfg.block(_jump.target).phis)
+		{
+			if (targetLiveIn.contains(phiId))
+			{
+				auto const& phi = std::get<SSACFG::PhiValue>(m_cfg.valueInfo(phiId));
+				auto const& phiArg = phi.arguments[m_cfg.phiArgumentIndex(_source, _jump.target)];
+
+				if (targetLiveIn.contains(phiArg))
+					m_stackLayout[_jump.target].stackIn.emplace_back(phiId);
+				else
+				{
+					auto const reverseStack = m_stackLayout[_jump.target].stackIn | ranges::views::reverse;
+					auto it = ranges::find(reverseStack, Slot{phiArg});
+					if (it != ranges::end(reverseStack))
+						*it = phiId;
+					else
+						m_stackLayout[_jump.target].stackIn.emplace_back(phiId);
+				}
+			}
+		}*/
+
 		// everything in stack out that is not in target live in can be deemed junk
 		Stack junkedSourceStack(
 			sourceStackWithoutJunkTail.data() |
@@ -317,7 +322,7 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 
 	auto const& sourceStackData = m_stackLayout[_source].stackOut;
 	auto sourceJunkTailSize = static_cast<std::ptrdiff_t>(junkTailSize(sourceStackData));
-	std::vector const  sourceStackWithoutJunkTail(sourceStackData.begin() + sourceJunkTailSize, sourceStackData.end());
+	std::vector const sourceStackWithoutJunkTail(sourceStackData.begin() + sourceJunkTailSize, sourceStackData.end());
 	if (!blockHasDefinedStackIn(_condJump.nonZero))
 	{
 		auto const& zeroLiveIn = m_liveness.liveIn(_condJump.zero);
@@ -353,7 +358,10 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 				top + std::vector<Slot>{_condJump.condition}, // we will add the condition, no need if its already there
 				targetLiveIn // liveness
 			);
-			m_stackLayout[_condJump.nonZero].stackIn = std::vector<Slot>(static_cast<size_t>(sourceJunkTailSize), ssa::JunkSlot{}) + tail + top;
+			m_stackLayout[_condJump.nonZero].stackIn =
+				std::vector<Slot>(static_cast<size_t>(sourceJunkTailSize), ssa::JunkSlot{}) +
+				tail +
+				top;
 		}
 		markBlockHasDefinedStackIn(_condJump.nonZero);
 	}
@@ -370,7 +378,11 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 		// todo use shuffle algo
 		if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.zero))
 		{
-			m_stackLayout[_condJump.zero].stackIn = std::vector<Slot>(static_cast<size_t>(sourceJunkTailSize), ssa::JunkSlot{}) + zeroUnusedLiveInStackData + zeroUsedSlots;}
+			m_stackLayout[_condJump.zero].stackIn =
+				std::vector<Slot>(static_cast<size_t>(sourceJunkTailSize), ssa::JunkSlot{}) +
+				zeroUnusedLiveInStackData +
+				zeroUsedSlots;
+		}
 		else
 		{
 			/*Stack remainder(m_stackLayout[_source].stackOut.stackData() |
@@ -385,7 +397,10 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 				zeroLiveInStackData,
 				zeroLiveIn
 			);*/
-			m_stackLayout[_condJump.zero].stackIn = pileOfJunk(m_stackLayout[_source].stackOut.size()) + zeroUnusedLiveInStackData + zeroUsedSlots;
+			m_stackLayout[_condJump.zero].stackIn =
+				pileOfJunk(m_stackLayout[_source].stackOut.size()) +
+				zeroUnusedLiveInStackData +
+				zeroUsedSlots;
 		}
 		markBlockHasDefinedStackIn(_condJump.zero);
 	}
