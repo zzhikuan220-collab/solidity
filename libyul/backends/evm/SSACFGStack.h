@@ -112,6 +112,7 @@ template<
 >
 class Stack
 {
+	static size_t constexpr reachableStackDepth = 16;
 public:
 	using Slot = typename Callbacks::Slot;
 	using Data = std::vector<Slot>;
@@ -135,6 +136,7 @@ public:
 	void swap(size_t const _depth)
 	{
 		yulAssert(m_data.size() > _depth);
+		yulAssert(1 <= _depth && _depth <= reachableStackDepth);
 		std::swap(m_data[m_data.size() - _depth - 1], m_data.back());
 		if constexpr (!std::is_same_v<Callbacks, NoOpStackManipulationCallbacks<Slot>>)
 			m_callbacks.swap(_depth);
@@ -161,6 +163,7 @@ public:
 	{
 		std::optional<size_t> const depth = slotDepth(_slot);
 		yulAssert(depth, fmt::format("Invalid dup, could not find slot"));
+		yulAssert(1 <= *depth + 1 && *depth + 1 <= reachableStackDepth);
 		m_data.push_back(m_data[m_data.size() - *depth - 1]);
 		if constexpr (!std::is_same_v<Callbacks, NoOpStackManipulationCallbacks<Slot>>)
 			m_callbacks.dup(*depth + 1);

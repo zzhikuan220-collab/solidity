@@ -46,11 +46,11 @@ template<typename StackType>
 struct BubbleShuffler
 {
 	using Stack = StackType;
-	using StackSlot = ssa::StackSlot;
-	static Stack shuffle(Stack const& _sourceStack, std::set<StackSlot> const& _targetStackRest, std::vector<StackSlot> const& _targetStackTop)
+	using StackSlot = typename Stack::Slot;
+	static Stack shuffle(Stack const& _sourceStack, std::vector<StackSlot> const& _targetStackRest, std::vector<StackSlot> const& _targetStackTop)
 	{
 		Stack shuffledStack = _sourceStack;
-		auto const histogram = [](Stack const& _stack, std::vector<StackSlot> const& _rest = {})
+		auto const histogram = [](std::vector<StackSlot> const& _stack, std::vector<StackSlot> const& _rest = {})
 		{
 			std::map<StackSlot, size_t> counts;
 			for (auto const& slot: _stack)
@@ -61,7 +61,7 @@ struct BubbleShuffler
 		};
 		auto const targetCounts = histogram(_targetStackTop, _targetStackRest);
 		{
-			auto const stackCounts = histogram(_sourceStack);
+			auto const stackCounts = histogram(_sourceStack.data());
 			// first, remove everything from the stack that occurs more often than what's in the target
 			for (auto const& [slot, count]: stackCounts)
 			{
@@ -71,7 +71,7 @@ struct BubbleShuffler
 				if (count > targetCount)
 					for (size_t i = 0; i < count - targetCount; ++i)
 					{
-						auto depth = util::findOffset(_sourceStack | ranges::views::reverse, slot);
+						auto depth = util::findOffset(_sourceStack.data() | ranges::views::reverse, slot);
 						yulAssert(depth);
 						if (depth > 0)
 							shuffledStack.swap(*depth);
@@ -84,23 +84,19 @@ struct BubbleShuffler
 				auto findIt = stackCounts.find(slot);
 				if (findIt == stackCounts.end())
 					for (size_t i = 0; i < targetCount; ++i)
-						shuffledStack.bringUpSlot(slot);
+						shuffledStack.pushOrDup(slot);
 				else
 				{
 					auto currentCount = std::min(targetCount, findIt->second);
 					yulAssert(currentCount <= targetCount);
 					for (size_t i = 0; i < targetCount - currentCount; ++i)
-					{
-						auto const depth = shuffledStack.slotIndex(slot);
-						yulAssert(depth);
-						shuffledStack.dup(*depth);
-					}
+						shuffledStack.dup(slot);
 				}
 			}
 		}
 
 		// now we have the same elements in the shuffled stack - just potentially in a different order
-		yulAssert(histogram(shuffledStack) == targetCounts);
+		yulAssert(histogram(shuffledStack.data()) == targetCounts);
 		auto const targetStackTopOffset = _targetStackRest.size();
 		for (size_t i = 0; i < _targetStackTop.size(); ++i)
 		{
