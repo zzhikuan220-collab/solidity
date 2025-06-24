@@ -83,17 +83,36 @@ BOOST_AUTO_TEST_CASE(yo)
 	SlotCanBeFreelyGenerated canBeFreelyGenerated{.canBeFreelyGenerated = {cfg.get()}};
 	stack = std::make_shared<TestStack>(slots, callback, canBeFreelyGenerated);
 
-	stack->push(cfg->newLiteral(langutil::DebugData::create(), 42));
+	// stack->push(cfg->newLiteral(langutil::DebugData::create(), 42));
+	auto const v0 = cfg->newVariable({0});
 	auto const v1 = cfg->newVariable({0});
 	auto const v2 = cfg->newVariable({0});
 	auto const v3 = cfg->newVariable({0});
+	auto const v4 = cfg->newVariable({0});
+	auto const v5 = cfg->newVariable({0});
+	auto const v6 = cfg->newVariable({0});
+	auto const v98 = cfg->newVariable({0});
+	auto const v99 = cfg->newVariable({0});
+	auto const v187 = cfg->newVariable({0});
+	auto const v188 = cfg->newVariable({0});
 
+	// calldatacopy([v0, v1, v2, v3, v4, v5, v6, v98, v99, v187, v188] -> { [v1, v2, v3, v4, v5, v6, v98, v99, v187, v188] } + [v1, v0, v188])
+
+	stack->push(v0);
 	stack->push(v1);
-	stack->push(v3);
 	stack->push(v2);
+	stack->push(v3);
+	stack->push(v4);
+	stack->push(v5);
+	stack->push(v6);
+	stack->push(v98);
+	stack->push(v99);
+	stack->push(v187);
+	stack->push(v188);
 
 	std::cout << "--- start shuffle ---" << std::endl;
-	BlockForwardShuffler<TestStack>::shuffle(*stack, {v2, v1}, {v3});
+	// *stack = DanielShuffler<TestStack>::shuffle(*stack, {v1, v2, v3, v4, v5, v6, v98, v99, v187, v188}, {v1, v0, v188});
+	BlockForwardShuffler<TestStack>::shuffle(*stack, {v1, v2, v3, v4, v5, v6, v98, v99, v187, v188}, {v1, v0, v188});
 	std::cout << "--- fin ---" << std::endl;
 	std::cout << ssa::stackToString(stack->data(), *cfg) << std::endl;
 }

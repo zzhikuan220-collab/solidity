@@ -334,7 +334,24 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 		if (true || (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.nonZero) && !m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.zero)))
 		{
 			// [phi^-1(liveInZero) - liveInNonZero, liveInNonZero]
-			conditionalJumpState = DanielShuffler<Stack>::shuffle(conditionalJumpState, {}, remainingZeroLiveInSlots + std::vector<Slot>(nonZeroLiveIn.begin(), nonZeroLiveIn.end()));
+			auto const activeSet = nonZeroLiveIn + remainingZeroLiveIn;
+			auto const activeSlots = std::set<Slot>(activeSet.begin(), activeSet.end());
+
+			while (
+				conditionalJumpState.size() > 0 &&
+				std::holds_alternative<SSACFG::ValueId>(conditionalJumpState.top()) &&
+				!activeSlots.contains(conditionalJumpState.top())
+			)
+				conditionalJumpState.pop();
+
+			for (auto it = conditionalJumpState.data().rbegin(); it != conditionalJumpState.data().rend(); ++it)
+				if (std::holds_alternative<SSACFG::ValueId>(*it) && !activeSlots.contains(*it))
+				{
+					conditionalJumpState.swap(static_cast<std::size_t>(std::distance(conditionalJumpState.data().rbegin(), it)));
+					conditionalJumpState.pop();
+				}
+
+			// conditionalJumpState = DanielShuffler<Stack>::shuffle(conditionalJumpState, {}, remainingZeroLiveInSlots + std::vector<Slot>(nonZeroLiveIn.begin(), nonZeroLiveIn.end()));
 			m_stackLayout[_condJump.nonZero].stackIn = pileOfJunk(sourceJunkTailSize) + conditionalJumpState.data();
 			/*m_stackLayout[_condJump.nonZero].stackIn =
 				std::vector<Slot>(static_cast<size_t>(sourceJunkTailSize), ssa::JunkSlot{}) +
