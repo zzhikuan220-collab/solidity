@@ -46,7 +46,7 @@ private:
 
 class SSACFGStackLayoutGenerator {
 public:
-	using Stack = ssa::Stack<>;
+	using Stack = ssa::Stack<ssa::SSACFGStackLayout::Slot>;
 	using Slot = ssa::SSACFGStackLayout::Slot;
 
 	static ssa::ControlFlowLayout generate(ControlFlowLiveness const& _controlFlowLiveness);

@@ -67,7 +67,7 @@ struct SlotCanBeFreelyGenerated
 };
 class SSAStackShufflingTest final: public TestCase
 {
-	using Stack = ssa::Stack<PrintCallback, SlotCanBeFreelyGenerated>;
+	using Stack = ssa::Stack<TestSlot, PrintCallback, SlotCanBeFreelyGenerated>;
 public:
 	static std::unique_ptr<TestCase> create(Config const& _config)
 	{

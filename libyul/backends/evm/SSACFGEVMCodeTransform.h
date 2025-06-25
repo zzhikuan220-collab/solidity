@@ -94,12 +94,12 @@ struct AssemblyCallbacks
 	AbstractAssembly* assembly;
 	std::map<FunctionCall const*, AbstractAssembly::LabelID> const* returnLabels;
 };
-static_assert(StackManipulationCallbackConcept<AssemblyCallbacks>);
+static_assert(StackManipulationCallbackConcept<AssemblyCallbacks, StackSlot>);
 
 class SSACFGEVMCodeTransform
 {
 public:
-	using SSACFGStack = Stack<AssemblyCallbacks>;
+	using SSACFGStack = Stack<StackSlot, AssemblyCallbacks>;
 	using Slot = SSACFGStack::Slot;
 	/// Use named labels for functions 1) Yes and check that the names are unique
 	/// 2) For none of the functions 3) for the first function of each name.

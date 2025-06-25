@@ -56,7 +56,7 @@ struct SlotCanBeFreelyGenerated
 	solidity::yul::ssa::SlotCanBeFreelyGenerated<solidity::yul::ssa::StackSlot> canBeFreelyGenerated;
 };
 
-using TestStack = solidity::yul::ssa::Stack<PrintCallback, SlotCanBeFreelyGenerated>;
+using TestStack = solidity::yul::ssa::Stack<SourceSlot, PrintCallback, SlotCanBeFreelyGenerated>;
 
 
 

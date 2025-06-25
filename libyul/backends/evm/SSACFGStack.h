@@ -53,10 +53,10 @@ struct JunkSlot
 using StackSlot = std::variant<AbstractAssembly::LabelID, SSACFG::ValueId, FunctionReturnLabel, JunkSlot>;
 using StackData = std::vector<StackSlot>;
 
-template<typename CanBeFreelyGenerated>
+template<typename CanBeFreelyGenerated, typename Slot>
 concept CanBeFreelyGeneratedConcept = requires(
 	CanBeFreelyGenerated _canBeFreelyGenerated,
-	typename CanBeFreelyGenerated::Slot _slot
+	Slot _slot
 )
 {
 	{ _canBeFreelyGenerated(_slot) } -> std::same_as<bool>;
@@ -75,16 +75,15 @@ struct SlotCanBeFreelyGenerated
 
 	SSACFG const* m_cfg;
 };
-static_assert(CanBeFreelyGeneratedConcept<SlotCanBeFreelyGenerated<StackSlot>>);
+static_assert(CanBeFreelyGeneratedConcept<SlotCanBeFreelyGenerated<StackSlot>, StackSlot>);
 
-template<typename StackManipulationCallback>
+template<typename StackManipulationCallback, typename Slot>
 concept StackManipulationCallbackConcept = requires(
 	StackManipulationCallback& _callback,
-	typename StackManipulationCallback::Slot _slot,
+	Slot _slot,
 	size_t _depth
 )
 {
-	typename StackManipulationCallback::Slot;
 	{ _callback.swap(_depth) } -> std::same_as<void>;
 	{ _callback.dup(_depth) } -> std::same_as<void>;
 	{ _callback.push(_slot) } -> std::same_as<void>;
@@ -100,15 +99,16 @@ struct NoOpStackManipulationCallbacks
 	static void push(Slot const&) {}
 	static void pop() {}
 };
-static_assert(StackManipulationCallbackConcept<NoOpStackManipulationCallbacks<StackSlot>>);
+static_assert(StackManipulationCallbackConcept<NoOpStackManipulationCallbacks<StackSlot>, StackSlot>);
 
 
 std::string slotToString(StackSlot const& _slot, SSACFG const& _cfg);
 std::string stackToString(StackData const& _stackData, SSACFG const& _cfg);
 
 template<
-	StackManipulationCallbackConcept Callbacks = NoOpStackManipulationCallbacks<StackSlot>,
-	CanBeFreelyGeneratedConcept CanBeFreelyGenerated = SlotCanBeFreelyGenerated<typename Callbacks::Slot>
+	typename StackSlot,
+	StackManipulationCallbackConcept<StackSlot> Callbacks = NoOpStackManipulationCallbacks<StackSlot>,
+	CanBeFreelyGeneratedConcept<StackSlot> CanBeFreelyGenerated = SlotCanBeFreelyGenerated<StackSlot>
 >
 class Stack
 {
@@ -157,6 +157,12 @@ public:
 		m_data.emplace_back(_slot);
 		if constexpr (callback && !std::is_same_v<Callbacks, NoOpStackManipulationCallbacks<Slot>>)
 			m_callbacks.push(_slot);
+	}
+
+	void declareJunk(size_t const _depth)
+	{
+		yulAssert(_depth < m_data.size());
+		m_data[_depth] = JunkSlot{};
 	}
 
 	void dup(Slot const& _slot)
