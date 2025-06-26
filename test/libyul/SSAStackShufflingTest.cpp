@@ -15,11 +15,12 @@
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #include <memory>
 #pragma GCC diagnostic pop
-
+#endif
 
 #include <test/libyul/SSAStackShufflingTest.h>
 

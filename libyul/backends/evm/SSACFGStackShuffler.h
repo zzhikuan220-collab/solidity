@@ -120,7 +120,10 @@ struct BubbleShuffler
 
 };
 
-template<typename StackType>
+template<
+	typename StackType,
+	auto SlotIsCompatible = [](typename StackType::Slot const& _source, typename StackType::Slot const& _target) { return std::holds_alternative<ssa::JunkSlot>(_target) || _source == _target; }
+>
 struct DanielShuffler
 {
 	using Stack = StackType;
@@ -151,12 +154,9 @@ struct DanielShuffler
 
 			bool isCompatible(size_t _source, size_t _target) const
 			{
-				return _source < currentStack.size() &&
-					_target < targetStack.size() &&
-					(
-						std::holds_alternative<ssa::JunkSlot>(targetStack[_target]) ||
-						currentStack[_source] == targetStack[_target]
-					);
+				if (_source >= currentStack.size() || _target >= targetStack.size())
+					return false;
+				return SlotIsCompatible(currentStack[_source], targetStack[_target]);
 			}
 
 			bool sourceIsSame(size_t _sourceOffset1, size_t _sourceOffset2) const
