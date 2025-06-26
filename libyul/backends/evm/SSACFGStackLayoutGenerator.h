@@ -45,16 +45,52 @@ private:
 };
 
 class SSACFGStackLayoutGenerator {
+	struct PhiPreImageSlot
+	{
+		SSACFG::ValueId phiId;
+		SSACFG::ValueId preImage;
+
+		bool operator==(PhiPreImageSlot const&) const = default;
+		auto operator<=>(PhiPreImageSlot const&) const = default;
+	};
+
+	template <typename T, typename... Args> struct variantConcat;
+	template <typename... Args0, typename... Args1>
+	struct variantConcat<std::variant<Args0...>, Args1...> {
+		using type = std::variant<Args0..., Args1...>;
+	};
+	template<typename... Args>
+	using variantConcat_t = typename variantConcat<Args...>::type;
 public:
-	using Stack = ssa::Stack<ssa::SSACFGStackLayout::Slot>;
-	using Slot = ssa::SSACFGStackLayout::Slot;
+	using Slot = variantConcat_t<ssa::SSACFGStackLayout::Slot, PhiPreImageSlot>;
 
 	static ssa::ControlFlowLayout generate(ControlFlowLiveness const& _controlFlowLiveness);
 	static ssa::SSACFGStackLayout generate(SSACFGLiveness const& _cfgLiveness);
-private:
 
+private:
+	struct SlotCanBeFreelyGenerated
+	{
+		bool operator()(Slot const& _slot) const
+		{
+			if (std::holds_alternative<PhiPreImageSlot>(_slot))
+				return m_cfg->isLiteralValue(std::get<PhiPreImageSlot>(_slot).preImage);
+			if (std::holds_alternative<SSACFG::ValueId>(_slot))
+				return m_cfg->isLiteralValue(std::get<SSACFG::ValueId>(_slot));
+			return std::holds_alternative<ssa::JunkSlot>(_slot) || std::holds_alternative<ssa::FunctionReturnLabel>(_slot);
+		}
+
+		SSACFG const* m_cfg;
+	};
+
+public:
+	using Stack = ssa::Stack<Slot, ssa::NoOpStackManipulationCallbacks<Slot>, SlotCanBeFreelyGenerated>;
+
+private:
 	explicit SSACFGStackLayoutGenerator(SSACFGLiveness const& _liveness);
 	~SSACFGStackLayoutGenerator();
+
+	Stack layoutToStack(ssa::StackData const& _layout) const;
+	static ssa::StackData stackToLayout(Stack::Data const& _stack);
 
 	/// Creates a stack tail by JUNKing everything that isn't in the liveness set of current and popping stuff that is
 	/// in the back of `_newTop`.
