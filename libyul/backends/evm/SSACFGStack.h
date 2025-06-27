@@ -162,7 +162,7 @@ public:
 	void declareJunk(size_t const _depth)
 	{
 		yulAssert(_depth < m_data.size());
-		m_data[_depth] = JunkSlot{};
+		m_data[m_data.size() - _depth - 1] = JunkSlot{};
 	}
 
 	void dup(Slot const& _slot)

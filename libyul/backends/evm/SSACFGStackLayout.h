@@ -56,6 +56,11 @@ public:
 		return _someSlot;
 	}
 
+	std::map<SSACFG::ValueId, SSACFG::ValueId> const& data() const
+	{
+		return m_reversePhiMap;
+	}
+
 private:
 	std::map<SSACFG::ValueId, SSACFG::ValueId> m_reversePhiMap = {};
 };

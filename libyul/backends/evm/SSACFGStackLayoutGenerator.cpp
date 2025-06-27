@@ -65,7 +65,7 @@ std::variant<TargetTypes...> castVariantTypes(std::variant<SourceTypes...> const
 			if constexpr ((std::is_same_v<VariantType, TargetTypes> || ...)) {
 				return val;
 			} else {
-				yulAssert(false, "Tried reducing variant to invalid type.");
+				yulAssert(false, "Tried casting variant component to invalid type.");
 			}
 		},
 		v
@@ -369,24 +369,40 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 	auto sourceJunkTailSize = junkTailSize(sourceStack.data());
 	std::vector const sourceStackWithoutJunkTail(sourceStack.begin() + static_cast<std::ptrdiff_t>(sourceJunkTailSize), sourceStack.end());
 	Stack conditionalJumpState (sourceStackWithoutJunkTail, {}, {&m_cfg});
+
+	auto const& zeroLiveIn = m_liveness.liveIn(_condJump.zero);
+	yulAssert(ranges::none_of(zeroLiveIn, IsSSACFGLiteral(m_cfg)));
+	auto const zeroPreImage = preImage(zeroLiveIn, _source, _condJump.zero);
 	if (!blockHasDefinedStackIn(_condJump.nonZero))
 	{
-		auto const& zeroLiveIn = m_liveness.liveIn(_condJump.zero);
 		yulAssert(ranges::none_of(zeroLiveIn, IsSSACFGLiteral(m_cfg)));
 		auto const& nonZeroLiveIn = m_liveness.liveIn(_condJump.nonZero);
-		auto const& nonZeroUsed = m_liveness.used(_condJump.nonZero);
 		yulAssert(ranges::none_of(nonZeroLiveIn, IsSSACFGLiteral(m_cfg)));
 
-		auto const pulledBackZeroLiveIn = zeroLiveIn | ranges::views::transform(ReversePhiFunctionTransform(m_cfg, _source, _condJump.zero)) | ranges::to<std::set>;
+		auto const nonZeroPreImage = preImage(nonZeroLiveIn, _source, _condJump.nonZero);
 
-		auto const unusedNonZeroLiveIn = nonZeroLiveIn - nonZeroUsed;
-		std::vector<Slot> const nonZeroUnusedLiveInSlots(unusedNonZeroLiveIn.begin(), unusedNonZeroLiveIn.end());
-		std::vector<Slot> const nonZeroUsedSlots(nonZeroUsed.begin(), nonZeroUsed.end());
-		auto const remainingZeroLiveIn = pulledBackZeroLiveIn - nonZeroLiveIn;
-		std::vector<Slot> const remainingZeroLiveInSlots(remainingZeroLiveIn.begin(), remainingZeroLiveIn.end());
+		auto combinedPreImage = nonZeroPreImage;
+		for (auto const& preImageId: zeroPreImage)
+		{
+			auto it = combinedPreImage.find(preImageId);
+			if (it != combinedPreImage.end() && !it->phiIds.empty())
+			{
+				yulAssert(!preImageId.phiIds.empty());
+				auto nodeHandle = combinedPreImage.extract(it);
+				nodeHandle.value().phiIds += preImageId.phiIds;
+				combinedPreImage.insert(std::move(nodeHandle));
+			}
+			else
+				combinedPreImage.insert(preImageId);
+		}
+
+		//auto const pulledBackZeroLiveIn = zeroLiveIn | ranges::views::transform(ReversePhiFunctionTransform(m_cfg, _source, _condJump.zero)) | ranges::to<std::set>;
+
+		//auto const remainingZeroLiveIn = pulledBackZeroLiveIn - nonZeroLiveIn;
+		//std::vector<Slot> const remainingZeroLiveInSlots(remainingZeroLiveIn.begin(), remainingZeroLiveIn.end());
 
 		// [phi^-1(liveInZero) - liveInNonZero, liveInNonZero]
-		auto const activeSet = nonZeroLiveIn + remainingZeroLiveIn;
+		//auto const activeSet = nonZeroLiveIn + remainingZeroLiveIn;
 
 		if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.nonZero) && !m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.zero))
 		{
@@ -394,55 +410,65 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 			while (
 				conditionalJumpState.size() > 0 &&
 				std::holds_alternative<SSACFG::ValueId>(conditionalJumpState.top()) &&
-				!activeSet.contains(std::get<SSACFG::ValueId>(conditionalJumpState.top()))
+				!combinedPreImage.contains(PreImageValueId{{}, std::get<SSACFG::ValueId>(conditionalJumpState.top())})
+			)
+				conditionalJumpState.pop();
+			for (auto it = conditionalJumpState.data().rbegin(); it != conditionalJumpState.data().rend(); ++it)
+			{
+				if (std::holds_alternative<SSACFG::ValueId>(*it) && !combinedPreImage.contains(PreImageValueId{{}, std::get<SSACFG::ValueId>(*it)}))
+				{
+					yulAssert(it != conditionalJumpState.data().rbegin()); // this shouldn't happen as we have already popped everything up front
+					auto const depth = static_cast<std::size_t>(std::distance(conditionalJumpState.data().rbegin(), it));
+					if (depth > 0)
+						conditionalJumpState.swap(depth);
+					conditionalJumpState.pop();
+				}
+			}
+
+			m_stackLayout[_condJump.nonZero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + conditionalJumpState.data());
+		}
+		else
+		{
+			while (
+				conditionalJumpState.size() > 0 &&
+				std::holds_alternative<SSACFG::ValueId>(conditionalJumpState.top()) &&
+				!combinedPreImage.contains(PreImageValueId{{}, std::get<SSACFG::ValueId>(conditionalJumpState.top())})
 			)
 				conditionalJumpState.pop();
 
 			for (auto it = conditionalJumpState.data().rbegin(); it != conditionalJumpState.data().rend(); ++it)
-				if (std::holds_alternative<SSACFG::ValueId>(*it) && !activeSet.contains(std::get<SSACFG::ValueId>(*it)))
+				if (std::holds_alternative<SSACFG::ValueId>(*it) && !combinedPreImage.contains(PreImageValueId{{}, std::get<SSACFG::ValueId>(*it)}))
 				{
-					conditionalJumpState.swap(static_cast<std::size_t>(std::distance(conditionalJumpState.data().rbegin(), it)));
-					conditionalJumpState.pop();
+					yulAssert(it != conditionalJumpState.data().rbegin()); // this shouldn't happen as we have already popped everything up frong
+					auto const depth = static_cast<std::size_t>(std::distance(conditionalJumpState.data().rbegin(), it));
+					conditionalJumpState.declareJunk(depth);
 				}
 
-			// conditionalJumpState = DanielShuffler<Stack>::shuffle(conditionalJumpState, {}, remainingZeroLiveInSlots + std::vector<Slot>(nonZeroLiveIn.begin(), nonZeroLiveIn.end()));
 			m_stackLayout[_condJump.nonZero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + conditionalJumpState.data());
-			/*m_stackLayout[_condJump.nonZero].stackIn =
-				std::vector<Slot>(static_cast<size_t>(sourceJunkTailSize), ssa::JunkSlot{}) +
-				remainingZeroLiveInSlots +
-				nonZeroUnusedLiveInSlots +
-				nonZeroUsedSlots;*/
-		}
-		else
-		{
-			//m_stackLayout[_condJump.nonZero].stackIn =
-			//	m_stackLayout[_source].stackOut + remainingZeroLiveInSlots + std::vector<Slot>(nonZeroLiveIn.begin(), nonZeroLiveIn.end());
-			auto const targetLiveIn = remainingZeroLiveIn + nonZeroLiveIn;
-			auto const top = remainingZeroLiveInSlots + nonZeroUnusedLiveInSlots + nonZeroUsedSlots;
-			auto const tail = prepareStackTail(
-				sourceStackWithoutJunkTail,
-				top + std::vector<Slot>{_condJump.condition}, // we will add the condition, no need if its already there
-				targetLiveIn // liveness
-			);
-			conditionalJumpState = DanielShuffler<Stack>::shuffle(conditionalJumpState, {}, tail + top);
-			m_stackLayout[_condJump.nonZero].stackIn = stackToLayout(
-				pileOfJunk(sourceJunkTailSize) +
-				conditionalJumpState.data()
-			);
 		}
 		markBlockHasDefinedStackIn(_condJump.nonZero);
 	}
 
 	if (!blockHasDefinedStackIn(_condJump.zero))
 	{
-		auto const& zeroLiveIn = m_liveness.liveIn(_condJump.zero);
-		auto const& zeroUsed = m_liveness.used(_condJump.zero);
-		yulAssert(ranges::none_of(zeroLiveIn, IsSSACFGLiteral(m_cfg)));
-
-		auto const zeroUnused = zeroLiveIn - zeroUsed;
-		std::vector<Slot> const zeroUnusedLiveInStackData(zeroUnused.begin(), zeroUnused.end());
-		std::vector<Slot> const zeroUsedSlots(zeroUsed.begin(), zeroUsed.end());
-		// todo use shuffle algo
+		// pop everything not in the active set
+		while (
+			conditionalJumpState.size() > 0 &&
+			std::holds_alternative<SSACFG::ValueId>(conditionalJumpState.top()) &&
+			!zeroPreImage.contains(PreImageValueId{{}, std::get<SSACFG::ValueId>(conditionalJumpState.top())})
+		)
+			conditionalJumpState.pop();
+		for (auto it = conditionalJumpState.data().rbegin(); it != conditionalJumpState.data().rend(); ++it)
+		{
+			if (std::holds_alternative<SSACFG::ValueId>(*it) && !zeroPreImage.contains(PreImageValueId{{}, std::get<SSACFG::ValueId>(*it)}))
+			{
+				yulAssert(it != conditionalJumpState.data().rbegin()); // this shouldn't happen as we have already popped everything up front
+				auto const depth = static_cast<std::size_t>(std::distance(conditionalJumpState.data().rbegin(), it));
+				if (depth > 0)
+					conditionalJumpState.swap(depth);
+				conditionalJumpState.pop();
+			}
+		}
 		if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.zero))
 			m_stackLayout[_condJump.zero].stackIn = stackToLayout(std::vector<Slot>(zeroLiveIn.begin(), zeroLiveIn.end()));
 		else
@@ -507,6 +533,28 @@ size_t SSACFGStackLayoutGenerator::junkTailSize(std::vector<Stack::Slot> const& 
 	}
 	return numJunk;
 }
+
+std::set<SSACFGStackLayoutGenerator::PreImageValueId> SSACFGStackLayoutGenerator::preImage(
+	std::set<SSACFG::ValueId> const& _valueIds,
+	SSACFG::BlockId const& _from,
+	SSACFG::BlockId const& _to
+) const
+{
+	std::set<PreImageValueId> result;
+	auto const transform = ReversePhiFunctionTransform(m_cfg, _from, _to);
+
+	for (auto const& valueId: _valueIds)
+	{
+		auto const it = transform.data().find(valueId);
+		if (it == transform.data().end())
+			result.insert(PreImageValueId{{}, valueId});
+		else
+			result.insert(PreImageValueId{{{_to, valueId}}, it->second});
+	}
+
+	return result;
+}
+
 SSACFGStackLayoutGenerator::Stack SSACFGStackLayoutGenerator::shuffleStack(Stack const& _source, std::vector<Slot> _target, std::optional<SSACFG::Edge> const& _edge) const
 {
 	auto const transform = _edge ? ReversePhiFunctionTransform(m_cfg, _edge->from, _edge->to) : ReversePhiFunctionTransform{};

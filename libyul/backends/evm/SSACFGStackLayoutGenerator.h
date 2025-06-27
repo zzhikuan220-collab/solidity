@@ -118,6 +118,34 @@ private:
 
 	static std::size_t junkTailSize(std::vector<Stack::Slot> const& _stackData);
 
+	struct PreImageValueId
+	{
+		std::vector<std::tuple<SSACFG::BlockId, SSACFG::ValueId>> phiIds{}; // (target block, phiId)
+		SSACFG::ValueId preImageId{};
+
+		bool operator==(const PreImageValueId& _other) const
+		{
+			return preImageId == _other.preImageId;
+		}
+
+		bool operator==(const SSACFG::ValueId& _valueId) const
+		{
+			return preImageId == _valueId;
+		}
+
+		bool operator<(const PreImageValueId& _other) const
+		{
+			return preImageId < _other.preImageId;
+		}
+
+		bool operator<(const SSACFG::ValueId& _valueId) const
+		{
+			return preImageId < _valueId;
+		}
+	};
+
+	std::set<PreImageValueId> preImage(std::set<SSACFG::ValueId> const& _valueIds,  SSACFG::BlockId const& _from, SSACFG::BlockId const& _to) const;
+
 	// todo unify with code transform
 	Stack shuffleStack(Stack const& _source, std::vector<Slot> _target, std::optional<SSACFG::Edge> const& _edge = std::nullopt) const;
 
