@@ -143,7 +143,7 @@ struct DanielShuffler
 				std::vector<StackSlot> const& _targetStack
 			): currentStack(_currentStack), targetStack(_targetStack)
 			{
-				for (auto const x: currentStack)
+				for (auto const& x: currentStack)
 					++sourceCounts[x];
 				for (auto const [i, x]: ranges::views::enumerate(targetStack))
 					if (i < currentStack.size() && std::holds_alternative<ssa::JunkSlot>(targetStack[i]))

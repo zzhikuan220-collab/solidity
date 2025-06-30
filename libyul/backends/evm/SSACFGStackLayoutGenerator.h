@@ -47,11 +47,28 @@ private:
 class SSACFGStackLayoutGenerator {
 	struct PhiPreImageSlot
 	{
-		SSACFG::ValueId phiId;
+		std::vector<std::tuple<SSACFG::BlockId, SSACFG::ValueId>> phiIds{}; // (target block, phiId)
 		SSACFG::ValueId preImage;
 
-		bool operator==(PhiPreImageSlot const&) const = default;
-		auto operator<=>(PhiPreImageSlot const&) const = default;
+		bool operator==(const PhiPreImageSlot& _other) const
+		{
+			return preImage == _other.preImage;
+		}
+
+		bool operator==(const SSACFG::ValueId& _valueId) const
+		{
+			return preImage == _valueId;
+		}
+
+		bool operator<(const PhiPreImageSlot& _other) const
+		{
+			return preImage < _other.preImage;
+		}
+
+		bool operator<(const SSACFG::ValueId& _valueId) const
+		{
+			return preImage < _valueId;
+		}
 	};
 
 	template <typename T, typename... Args> struct variantConcat;
@@ -60,9 +77,9 @@ class SSACFGStackLayoutGenerator {
 		using type = std::variant<Args0..., Args1...>;
 	};
 	template<typename... Args>
-	using variantConcat_t = typename variantConcat<Args...>::type;
+	using variantConcatType = typename variantConcat<Args...>::type;
 public:
-	using Slot = variantConcat_t<ssa::SSACFGStackLayout::Slot, PhiPreImageSlot>;
+	using Slot = variantConcatType<ssa::SSACFGStackLayout::Slot, PhiPreImageSlot>;
 
 	static ssa::ControlFlowLayout generate(ControlFlowLiveness const& _controlFlowLiveness);
 	static ssa::SSACFGStackLayout generate(SSACFGLiveness const& _cfgLiveness);
@@ -90,7 +107,7 @@ private:
 	~SSACFGStackLayoutGenerator();
 
 	Stack layoutToStack(ssa::StackData const& _layout) const;
-	static ssa::StackData stackToLayout(Stack::Data const& _stack);
+	static ssa::StackData stackToLayout(Stack::Data const& _stack, SSACFG::BlockId const& _blockId);
 
 	/// Creates a stack tail by JUNKing everything that isn't in the liveness set of current and popping stuff that is
 	/// in the back of `_newTop`.
@@ -120,7 +137,7 @@ private:
 
 	struct PreImageValueId
 	{
-		std::vector<std::tuple<SSACFG::BlockId, SSACFG::ValueId>> phiIds{}; // (target block, phiId)
+		SSACFG::ValueId phiId{}; // (target block, phiId)
 		SSACFG::ValueId preImageId{};
 
 		bool operator==(const PreImageValueId& _other) const

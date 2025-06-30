@@ -196,6 +196,10 @@ public:
 	{
 		return std::holds_alternative<LiteralValue>(valueInfo(_var));
 	}
+	bool isPhiValue(ValueId const _var) const
+	{
+		return std::holds_alternative<PhiValue>(valueInfo(_var));
+	}
 	ValueInfo& valueInfo(ValueId const _var)
 	{
 		return m_valueInfos.at(_var.value);

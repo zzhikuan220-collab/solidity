@@ -142,12 +142,26 @@ SSACFGStackLayoutGenerator::Stack SSACFGStackLayoutGenerator::layoutToStack(Stac
 	return Stack(std::move(stackData), {}, {&m_cfg});
 }
 
-ssa::StackData SSACFGStackLayoutGenerator::stackToLayout(Stack::Data const& _stack)
+ssa::StackData SSACFGStackLayoutGenerator::stackToLayout(Stack::Data const& _stack, SSACFG::BlockId const& _blockId)
 {
 	StackData layout;
 	layout.reserve(_stack.size());
 	for (auto const& slot: _stack)
-		layout.push_back(castVariant<ssa::StackSlot>(slot));
+		if (auto const* phiPreImageSlot = std::get_if<PhiPreImageSlot>(&slot))
+		{
+			bool foundPhiPreImage = false;
+			for (auto const& [phiTargetBlock, phiId]: phiPreImageSlot->phiIds)
+				if (phiTargetBlock == _blockId)
+				{
+					layout.emplace_back(phiId);
+					foundPhiPreImage = true;
+					break;
+				}
+			if (!foundPhiPreImage)
+				layout.emplace_back(phiPreImageSlot->preImage);
+		}
+		else
+			layout.push_back(castVariant<ssa::StackSlot>(slot));
 	return layout;
 }
 
@@ -202,7 +216,7 @@ void SSACFGStackLayoutGenerator::visitBlock(SSACFG::BlockId const _blockId)
 	m_stackLayout[_blockId].operationIn.resize(numOperationsInBlock);
 	for (size_t operationIndex = 0; operationIndex < numOperationsInBlock; ++operationIndex)
 		propagateStackThroughOperation(_blockId, operationIndex, currentStack);
-	m_stackLayout[_blockId].stackOut = stackToLayout(currentStack.data());
+	m_stackLayout[_blockId].stackOut = stackToLayout(currentStack.data(), _blockId);
 
 	markBlockGenerated(_blockId);
 	handleBlockSuccessorsStackIn(_blockId);
@@ -225,7 +239,7 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 			[](SSACFG::BuiltinCall const& _call) { return _call.builtin.get().name; },
 			[](SSACFG::LiteralAssignment const&) -> std::string { return "assign"; }
 		), operation.kind);
-		std::cout << "\t\t" << operationName << "(" << stackToString(stackToLayout(_stack.data()), m_cfg) << " -> ";
+		std::cout << "\t\t" << operationName << "(" << stackToString(stackToLayout(_stack.data(), _blockId), m_cfg) << " -> ";
 	}
 
 	// literals should have been pulled out a priori and now are treated as push constants
@@ -244,7 +258,7 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 		if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_blockId))
 		{
 			if constexpr(debugOutput)
-				std::cout << "{ " << stackToString(stackToLayout(std::vector(liveOutWithoutOutputs.begin(), liveOutWithoutOutputs.end())), m_cfg) << " } + " << stackToString(stackToLayout(requiredStackTop), m_cfg) << ")\n";
+				std::cout << "{ " << stackToString(stackToLayout(std::vector(liveOutWithoutOutputs.begin(), liveOutWithoutOutputs.end()), _blockId), m_cfg) << " } + " << stackToString(stackToLayout(requiredStackTop, _blockId), m_cfg) << ")\n";
 			if constexpr (false)
 			{
 				auto inputJunkTailSize = static_cast<std::ptrdiff_t>(junkTailSize(_stack.data()));
@@ -265,7 +279,7 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 
 		// todo!!
 		if constexpr(debugOutput)
-			std::cout << "{ " << stackToString(stackToLayout(pileOfJunk(junkTailSize(_stack.data()))), m_cfg) << " } + " << stackToString(stackToLayout(requiredStackTop), m_cfg) << ")\n";
+			std::cout << "{ " << stackToString(stackToLayout(pileOfJunk(junkTailSize(_stack.data())), _blockId), m_cfg) << " } + " << stackToString(stackToLayout(requiredStackTop, _blockId), m_cfg) << ")\n";
 		auto const v = _stack.data() | ranges::views::transform([&](auto const& _slot) -> Slot { return liveOutWithoutOutputs.contains(_slot) ? _slot : ssa::JunkSlot{}; }) | ranges::to<std::vector<Slot>>;
 		return DanielShuffler<Stack>::shuffle(_stack, {}, v + requiredStackTop);
 		/*
@@ -283,7 +297,7 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 		// return DanielShuffler<Stack>::shuffle(_stack, {}, pileOfJunk(junkTailSize(_stack.data())) + std::vector(liveOutWithoutOutputs.begin(), liveOutWithoutOutputs.end()) + requiredStackTop);
 		// return Stack{_stack.data() + requiredStackTop, {}, {&m_cfg}};
 	}();
-	m_stackLayout[_blockId].operationIn[_operationIndex] = stackToLayout(stack.data());
+	m_stackLayout[_blockId].operationIn[_operationIndex] = stackToLayout(stack.data(), _blockId);
 
 	for (size_t i = 0; i < requiredStackTop.size(); ++i)
 		stack.pop();
@@ -345,13 +359,13 @@ void SSACFGStackLayoutGenerator::handleStackInViaJumpExit(
 			SSACFG::Edge{_source, _jump.target}
 		).data();*/
 		auto const stackIn = BlockStackInShuffler<Stack>::shuffle(sourceStack, targetLiveInSlots);
-		m_stackLayout[_jump.target].stackIn = stackToLayout(stackIn.data());
+		m_stackLayout[_jump.target].stackIn = stackToLayout(stackIn.data(), _jump.target);
 		// todo fix slot types
 		// yulAssert(std::set(m_stackLayout[_jump.target].stackIn.begin(), m_stackLayout[_jump.target].stackIn.end()) == targetLiveInSlots);
 	}
 	else
 	{
-		m_stackLayout[_jump.target].stackIn = stackToLayout(pileOfJunk(junkTailSize(sourceStack.data())) + std::vector(targetLiveInSlots.begin(), targetLiveInSlots.end()));
+		m_stackLayout[_jump.target].stackIn = stackToLayout(pileOfJunk(junkTailSize(sourceStack.data())) + std::vector(targetLiveInSlots.begin(), targetLiveInSlots.end()), _jump.target);
 		// m_stackLayout[_jump.target].stackIn = shuffleStack(Stack(sourceStackData, {}, {&m_cfg}), sourceStackData + std::vector(targetLiveInSlots.begin(), targetLiveInSlots.end()), SSACFG::Edge{_source, _jump.target}).data();
 	}
 	markBlockHasDefinedStackIn(_jump.target);
@@ -362,40 +376,42 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 	SSACFG::BasicBlock::ConditionalJump const& _condJump
 )
 {
-	if (blockHasDefinedStackIn(_condJump.nonZero) && blockHasDefinedStackIn(_condJump.zero))
-		return;
+	// todo i have popped too much. if the variable as well as phi(variable) are requested, they both must end up in the layout!
+	//		at the operation level i have forgotten where i came from
+
+	// we can't enter nonZero without `goto`
+	yulAssert(!blockHasDefinedStackIn(_condJump.nonZero));
+	//if (blockHasDefinedStackIn(_condJump.nonZero) && blockHasDefinedStackIn(_condJump.zero))
+	//	return;
 
 	auto const& sourceStack = layoutToStack(m_stackLayout[_source].stackOut);
 	auto sourceJunkTailSize = junkTailSize(sourceStack.data());
-	std::vector const sourceStackWithoutJunkTail(sourceStack.begin() + static_cast<std::ptrdiff_t>(sourceJunkTailSize), sourceStack.end());
-	Stack conditionalJumpState (sourceStackWithoutJunkTail, {}, {&m_cfg});
+	std::vector sourceStackWithoutJunkTail(sourceStack.begin() + static_cast<std::ptrdiff_t>(sourceJunkTailSize), sourceStack.end());
 
 	auto const& zeroLiveIn = m_liveness.liveIn(_condJump.zero);
 	yulAssert(ranges::none_of(zeroLiveIn, IsSSACFGLiteral(m_cfg)));
-	auto const zeroPreImage = preImage(zeroLiveIn, _source, _condJump.zero);
-	if (!blockHasDefinedStackIn(_condJump.nonZero))
-	{
-		yulAssert(ranges::none_of(zeroLiveIn, IsSSACFGLiteral(m_cfg)));
-		auto const& nonZeroLiveIn = m_liveness.liveIn(_condJump.nonZero);
-		yulAssert(ranges::none_of(nonZeroLiveIn, IsSSACFGLiteral(m_cfg)));
+	auto const pulledBackZeroLiveIn = preImage(zeroLiveIn, _source, _condJump.zero);
+	auto const& nonZeroLiveIn = m_liveness.liveIn(_condJump.nonZero);
+	yulAssert(ranges::none_of(nonZeroLiveIn, IsSSACFGLiteral(m_cfg)));
+	auto const pulledBackNonZeroLiveIn = preImage(nonZeroLiveIn, _source, _condJump.nonZero);
 
-		auto const nonZeroPreImage = preImage(nonZeroLiveIn, _source, _condJump.nonZero);
-
-		auto combinedPreImage = nonZeroPreImage;
-		for (auto const& preImageId: zeroPreImage)
+	for (auto& slot: sourceStackWithoutJunkTail)
+		if (auto const* valueId = std::get_if<SSACFG::ValueId>(&slot))
 		{
-			auto it = combinedPreImage.find(preImageId);
-			if (it != combinedPreImage.end() && !it->phiIds.empty())
-			{
-				yulAssert(!preImageId.phiIds.empty());
-				auto nodeHandle = combinedPreImage.extract(it);
-				nodeHandle.value().phiIds += preImageId.phiIds;
-				combinedPreImage.insert(std::move(nodeHandle));
-			}
-			else
-				combinedPreImage.insert(preImageId);
+			std::vector<std::tuple<SSACFG::BlockId, SSACFG::ValueId>> phiInfo{};
+			if (auto it = pulledBackZeroLiveIn.find(PreImageValueId{{}, *valueId}); it != pulledBackZeroLiveIn.end() && it->phiId.hasValue())
+				phiInfo.emplace_back(_condJump.zero, it->phiId);
+			if (auto it = pulledBackNonZeroLiveIn.find(PreImageValueId{{}, *valueId}); it != pulledBackNonZeroLiveIn.end() && it->phiId.hasValue())
+				phiInfo.emplace_back(_condJump.nonZero, it->phiId);
+			if (!phiInfo.empty())
+				slot = PhiPreImageSlot{std::move(phiInfo), *valueId};
 		}
 
+	Stack conditionalJumpState (sourceStackWithoutJunkTail, {}, {&m_cfg});
+
+
+	if (!blockHasDefinedStackIn(_condJump.nonZero))
+	{
 		//auto const pulledBackZeroLiveIn = zeroLiveIn | ranges::views::transform(ReversePhiFunctionTransform(m_cfg, _source, _condJump.zero)) | ranges::to<std::set>;
 
 		//auto const remainingZeroLiveIn = pulledBackZeroLiveIn - nonZeroLiveIn;
@@ -404,9 +420,14 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 		// [phi^-1(liveInZero) - liveInNonZero, liveInNonZero]
 		//auto const activeSet = nonZeroLiveIn + remainingZeroLiveIn;
 
+		// this will discard value ids if they overlap in their pre-images. but that is okay here because we don't
+		// use any information related to the phi value ids on the combined pre image
+		auto const combinedPreImage = pulledBackNonZeroLiveIn + pulledBackZeroLiveIn;
+
 		if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.nonZero) && !m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.zero))
 		{
-			// pop everything not in the active set
+			// pop everything not in the combined pre image
+			// we can ignore the phi function pre-image slots because they are definitely in the combined liveness
 			while (
 				conditionalJumpState.size() > 0 &&
 				std::holds_alternative<SSACFG::ValueId>(conditionalJumpState.top()) &&
@@ -425,7 +446,12 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 				}
 			}
 
-			m_stackLayout[_condJump.nonZero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + conditionalJumpState.data());
+			// todo map phi slots back to their og form before doing this
+			m_stackLayout[_condJump.nonZero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + conditionalJumpState.data(), _condJump.nonZero);
+			// add any phi function values here that are not already contained in the stack
+			for (auto const& liveInValue: nonZeroLiveIn)
+				if (m_cfg.isPhiValue(liveInValue) && ranges::find(conditionalJumpState.data(), Slot{liveInValue}) == conditionalJumpState.data().end())
+					m_stackLayout[_condJump.nonZero].stackIn.emplace_back(liveInValue);
 		}
 		else
 		{
@@ -444,7 +470,11 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 					conditionalJumpState.declareJunk(depth);
 				}
 
-			m_stackLayout[_condJump.nonZero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + conditionalJumpState.data());
+			// todo map phi slots back to their og form before doing this
+			m_stackLayout[_condJump.nonZero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + conditionalJumpState.data(), _condJump.nonZero);
+			for (auto const& liveInValue: nonZeroLiveIn)
+				if (m_cfg.isPhiValue(liveInValue) && ranges::find(conditionalJumpState.data(), Slot{liveInValue}) == conditionalJumpState.data().end())
+					m_stackLayout[_condJump.nonZero].stackIn.emplace_back(liveInValue);
 		}
 		markBlockHasDefinedStackIn(_condJump.nonZero);
 	}
@@ -455,12 +485,12 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 		while (
 			conditionalJumpState.size() > 0 &&
 			std::holds_alternative<SSACFG::ValueId>(conditionalJumpState.top()) &&
-			!zeroPreImage.contains(PreImageValueId{{}, std::get<SSACFG::ValueId>(conditionalJumpState.top())})
+			!pulledBackZeroLiveIn.contains(PreImageValueId{{}, std::get<SSACFG::ValueId>(conditionalJumpState.top())})
 		)
 			conditionalJumpState.pop();
 		for (auto it = conditionalJumpState.data().rbegin(); it != conditionalJumpState.data().rend(); ++it)
 		{
-			if (std::holds_alternative<SSACFG::ValueId>(*it) && !zeroPreImage.contains(PreImageValueId{{}, std::get<SSACFG::ValueId>(*it)}))
+			if (std::holds_alternative<SSACFG::ValueId>(*it) && !pulledBackZeroLiveIn.contains(PreImageValueId{{}, std::get<SSACFG::ValueId>(*it)}))
 			{
 				yulAssert(it != conditionalJumpState.data().rbegin()); // this shouldn't happen as we have already popped everything up front
 				auto const depth = static_cast<std::size_t>(std::distance(conditionalJumpState.data().rbegin(), it));
@@ -469,36 +499,14 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 				conditionalJumpState.pop();
 			}
 		}
+		// todo map phi slots back to their og form before doing this
 		if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.zero))
-			m_stackLayout[_condJump.zero].stackIn = stackToLayout(std::vector<Slot>(zeroLiveIn.begin(), zeroLiveIn.end()));
+			m_stackLayout[_condJump.zero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + conditionalJumpState.data(), _condJump.zero);
 		else
-			m_stackLayout[_condJump.zero].stackIn = stackToLayout(pileOfJunk(junkTailSize(conditionalJumpState.data())) + std::vector<Slot>(zeroLiveIn.begin(), zeroLiveIn.end()));
-		if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.zero))
-		{
-			/*m_stackLayout[_condJump.zero].stackIn =
-				std::vector<Slot>(static_cast<size_t>(sourceJunkTailSize), ssa::JunkSlot{}) +
-				zeroUnusedLiveInStackData +
-				zeroUsedSlots;*/
-		}
-		else
-		{
-			/*Stack remainder(m_stackLayout[_source].stackOut.stackData() |
-				ranges::views::transform([&](Slot const& _slot) -> Slot {
-					if (std::holds_alternative<SSACFG::ValueId>(_slot) && !zeroLiveIn.contains(std::get<SSACFG::ValueId>(_slot)))
-						return SSACFGJunkSlot{};
-					return _slot;
-				}) |
-				ranges::to<std::vector>);
-			auto const tail = prepareStackTail(
-				m_stackLayout[_source].stackOut.stackData(), // current stack
-				zeroLiveInStackData,
-				zeroLiveIn
-			);*/
-			/*m_stackLayout[_condJump.zero].stackIn =
-				pileOfJunk(m_stackLayout[_source].stackOut.size()) +
-				zeroUnusedLiveInStackData +
-				zeroUsedSlots;*/
-		}
+			m_stackLayout[_condJump.zero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + conditionalJumpState.data(), _condJump.zero);
+		for (auto const& liveInValue: zeroLiveIn)
+			if (m_cfg.isPhiValue(liveInValue) && ranges::find(conditionalJumpState.data(), Slot{liveInValue}) == conditionalJumpState.data().end())
+				m_stackLayout[_condJump.zero].stackIn.emplace_back(liveInValue);
 		markBlockHasDefinedStackIn(_condJump.zero);
 	}
 }
@@ -549,7 +557,7 @@ std::set<SSACFGStackLayoutGenerator::PreImageValueId> SSACFGStackLayoutGenerator
 		if (it == transform.data().end())
 			result.insert(PreImageValueId{{}, valueId});
 		else
-			result.insert(PreImageValueId{{{_to, valueId}}, it->second});
+			result.insert(PreImageValueId{valueId, it->second});
 	}
 
 	return result;
