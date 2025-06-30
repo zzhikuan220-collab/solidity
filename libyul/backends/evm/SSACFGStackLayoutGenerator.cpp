@@ -470,7 +470,6 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 					conditionalJumpState.declareJunk(depth);
 				}
 
-			// todo map phi slots back to their og form before doing this
 			m_stackLayout[_condJump.nonZero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + conditionalJumpState.data(), _condJump.nonZero);
 			for (auto const& liveInValue: nonZeroLiveIn)
 				if (m_cfg.isPhiValue(liveInValue) && ranges::find(conditionalJumpState.data(), Slot{liveInValue}) == conditionalJumpState.data().end())
@@ -494,16 +493,17 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 			{
 				yulAssert(it != conditionalJumpState.data().rbegin()); // this shouldn't happen as we have already popped everything up front
 				auto const depth = static_cast<std::size_t>(std::distance(conditionalJumpState.data().rbegin(), it));
-				if (depth > 0)
-					conditionalJumpState.swap(depth);
-				conditionalJumpState.pop();
+				if (m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.zero))
+					conditionalJumpState.declareJunk(depth);
+				else
+				{
+					if (depth > 0)
+						conditionalJumpState.swap(depth);
+					conditionalJumpState.pop();
+				}
 			}
 		}
-		// todo map phi slots back to their og form before doing this
-		if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.zero))
-			m_stackLayout[_condJump.zero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + conditionalJumpState.data(), _condJump.zero);
-		else
-			m_stackLayout[_condJump.zero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + conditionalJumpState.data(), _condJump.zero);
+		m_stackLayout[_condJump.zero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + conditionalJumpState.data(), _condJump.zero);
 		for (auto const& liveInValue: zeroLiveIn)
 			if (m_cfg.isPhiValue(liveInValue) && ranges::find(conditionalJumpState.data(), Slot{liveInValue}) == conditionalJumpState.data().end())
 				m_stackLayout[_condJump.zero].stackIn.emplace_back(liveInValue);
