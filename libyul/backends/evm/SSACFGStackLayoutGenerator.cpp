@@ -322,8 +322,11 @@ void SSACFGStackLayoutGenerator::handleBlockSuccessorsStackIn(SSACFG::BlockId co
 		{
 			yulAssert(false, "nope, not yet"); // todo
 		},
-		[](SSACFG::BasicBlock::FunctionReturn const&)
+		[&](SSACFG::BasicBlock::FunctionReturn const& _return)
 		{
+			auto stack = layoutToStack(m_stackLayout[_blockId].stackOut);
+			stack = DanielShuffler<Stack>::shuffle(stack, {}, std::vector<Slot>(_return.returnValues.begin(), _return.returnValues.end()));
+			m_stackLayout[_blockId].stackOut = stack.data() | ranges::views::transform(castVariant<ssa::StackSlot, Slot>) | ranges::to<std::vector>;
 		},
 		[](SSACFG::BasicBlock::Terminated const&) {}
 	}, m_cfg.block(_blockId).exit);
