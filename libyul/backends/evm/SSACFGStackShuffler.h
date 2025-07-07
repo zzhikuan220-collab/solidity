@@ -391,7 +391,9 @@ struct BlockStackInShuffler
 {
 	using Stack = StackType;
 	using StackSlot = typename Stack::Slot;
-	static Stack shuffle(Stack const& _sourceStack, std::set<StackSlot> const& _liveIn)
+
+	template<typename LiveInSlots>
+	static Stack shuffle(Stack const& _sourceStack, LiveInSlots const& _liveIn)
 	{
 		Stack result = _sourceStack;
 		auto const findNextSlotToPop = [&]

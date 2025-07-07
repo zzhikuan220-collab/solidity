@@ -135,36 +135,14 @@ private:
 
 	static std::size_t junkTailSize(std::vector<Stack::Slot> const& _stackData);
 
-	struct PreImageValueId
-	{
-		SSACFG::ValueId phiId{}; // (target block, phiId)
-		SSACFG::ValueId preImageId{};
-
-		bool operator==(const PreImageValueId& _other) const
-		{
-			return preImageId == _other.preImageId;
-		}
-
-		bool operator==(const SSACFG::ValueId& _valueId) const
-		{
-			return preImageId == _valueId;
-		}
-
-		bool operator<(const PreImageValueId& _other) const
-		{
-			return preImageId < _other.preImageId;
-		}
-
-		bool operator<(const SSACFG::ValueId& _valueId) const
-		{
-			return preImageId < _valueId;
-		}
-	};
-
-	std::set<PreImageValueId> preImage(std::set<SSACFG::ValueId> const& _valueIds,  SSACFG::BlockId const& _from, SSACFG::BlockId const& _to) const;
+	std::set<SSACFG::ValueId> preImage(std::set<SSACFG::ValueId> const& _valueIds,  SSACFG::BlockId const& _from, SSACFG::BlockId const& _to) const;
 
 	// todo unify with code transform
-	Stack shuffleStack(Stack const& _source, std::vector<Slot> _target, std::optional<SSACFG::Edge> const& _edge = std::nullopt) const;
+	Stack shuffleStack(
+		Stack const& _source, std::vector<Slot> _target, std::optional<SSACFG::Edge> const& _edge = std::nullopt) const;
+
+	static void reduceStackToLiveness(Stack& _stack, std::set<SSACFG::ValueId> const& _livenessPreImage, bool _introduceJunk);
+	static void handlePhiFunctions(Stack::Data& _stackData, ssa::ReversePhiFunctionTransform const& _phiInverse, std::set<SSACFG::ValueId> const& _liveness);
 
 	SSACFGLiveness const& m_liveness;
 	SSACFG const& m_cfg;

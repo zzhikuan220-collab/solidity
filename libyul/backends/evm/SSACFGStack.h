@@ -169,7 +169,7 @@ public:
 	{
 		std::optional<size_t> const depth = slotDepth(_slot);
 		yulAssert(depth, fmt::format("Invalid dup, could not find slot"));
-		yulAssert(1 <= *depth + 1 && *depth + 1 <= reachableStackDepth);
+		yulAssert(1 <= *depth + 1 && *depth + 1 <= reachableStackDepth, "Stack too deep");
 		m_data.push_back(m_data[m_data.size() - *depth - 1]);
 		if constexpr (!std::is_same_v<Callbacks, NoOpStackManipulationCallbacks<Slot>>)
 			m_callbacks.dup(*depth + 1);
