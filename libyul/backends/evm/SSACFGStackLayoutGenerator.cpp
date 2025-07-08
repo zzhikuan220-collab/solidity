@@ -413,12 +413,12 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 
 		// pop everything not in the combined pre image
 		// we can ignore the phi function pre-image slots because they are definitely in the combined liveness
-		reduceStackToLiveness(conditionalJumpState, combinedPreImage, false);
+		reduceStackToLiveness(conditionalJumpState, combinedPreImage, m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.zero) && m_junkBlockFinder.blockAllowsAdditionOfJunk(_condJump.nonZero));
 
 		// add any phi function values here that are not already contained in the stack
 		{
 			auto stackInData = conditionalJumpState.data();
-			ReversePhiFunctionTransform nonZeroPreImage(m_cfg, _source, _condJump.nonZero);
+			ReversePhiFunctionTransform const nonZeroPreImage(m_cfg, _source, _condJump.nonZero);
 			handlePhiFunctions(stackInData, nonZeroPreImage, nonZeroLiveIn);
 			m_stackLayout[_condJump.nonZero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + stackInData, _condJump.nonZero);
 		}
@@ -433,7 +433,7 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 		// add any phi function values here that are not already contained in the stack
 		{
 			auto stackInData = conditionalJumpState.data();
-			ReversePhiFunctionTransform zeroPreImage(m_cfg, _source, _condJump.zero);
+			ReversePhiFunctionTransform const zeroPreImage(m_cfg, _source, _condJump.zero);
 			handlePhiFunctions(stackInData, zeroPreImage, zeroLiveIn);
 			m_stackLayout[_condJump.zero].stackIn = stackToLayout(pileOfJunk(sourceJunkTailSize) + stackInData, _condJump.zero);
 		}
@@ -498,8 +498,25 @@ SSACFGStackLayoutGenerator::Stack SSACFGStackLayoutGenerator::shuffleStack(
 	return Stack(_target, {}, {&m_cfg});
 }
 
-void SSACFGStackLayoutGenerator::reduceStackToLiveness(Stack& _stack, std::set<SSACFG::ValueId> const& _livenessPreImage, bool _introduceJunk)
+void SSACFGStackLayoutGenerator::reduceStackToLiveness(Stack& _stack, std::set<SSACFG::ValueId> const& _livenessPreImage, bool const _introduceJunk)
 {
+	// if we are allowed to introduce junk, we'll just declare everything in the stack tail that is not part of the liveness
+	// set as junk until we find something that has relevance. That way the stack closer to the top is kept compact
+	// and the end part can be safely discarded
+	if (_introduceJunk)
+		for (size_t i = 0; i < _stack.size(); ++i)
+		{
+			if (!std::holds_alternative<SSACFG::ValueId>(_stack[i]) && !std::holds_alternative<ssa::JunkSlot>(_stack[i]))
+				break;
+
+			if (auto const* valueSlot = std::get_if<SSACFG::ValueId>(&_stack[i]))
+			{
+				if (_livenessPreImage.contains(*valueSlot))
+					break;
+				_stack.declareJunk(_stack.size() - i - 1);
+			}
+		}
+
 	// pop everything not in the combined pre image
 	// we can ignore the phi function pre-image slots because they are definitely in the combined liveness
 	while (
@@ -512,17 +529,11 @@ void SSACFGStackLayoutGenerator::reduceStackToLiveness(Stack& _stack, std::set<S
 	{
 		if (std::holds_alternative<SSACFG::ValueId>(*it) && !_livenessPreImage.contains(std::get<SSACFG::ValueId>(*it)))
 		{
-			yulAssert(
-				it != _stack.data().rbegin()); // this shouldn't happen as we have already popped everything up front
+			yulAssert(it != _stack.data().rbegin()); // this shouldn't happen as we have already popped everything up front
 			auto const depth = static_cast<std::size_t>(std::distance(_stack.data().rbegin(), it));
-			if (_introduceJunk)
-				_stack.declareJunk(depth);
-			else
-			{
-				if (depth > 0)
-					_stack.swap(depth);
-				_stack.pop();
-			}
+			if (depth > 0)
+				_stack.swap(depth);
+			_stack.pop();
 		}
 	}
 }
