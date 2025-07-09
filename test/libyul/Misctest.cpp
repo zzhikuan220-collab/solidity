@@ -112,7 +112,8 @@ BOOST_AUTO_TEST_CASE(yo)
 
 	std::cout << "--- start shuffle ---" << std::endl;
 	// *stack = DanielShuffler<TestStack>::shuffle(*stack, {v1, v2, v3, v4, v5, v6, v98, v99, v187, v188}, {v1, v0, v188});
-	BlockForwardShuffler<TestStack>::shuffle(*stack, {v1, v2, v3, v4, v5, v6, v98, v99, v187, v188}, {v1, v0, v188});
+	static auto constexpr slotCompatible = [](SourceSlot const& _s1, SourceSlot const& _s2) { return _s1 == _s2; };
+	BlockForwardShuffler<TestStack, slotCompatible>::shuffle(*stack, {v1, v2, v3, v4, v5, v6, v98, v99, v187, v188}, {v1, v0, v188});
 	std::cout << "--- fin ---" << std::endl;
 	std::cout << ssa::stackToString(stack->data(), *cfg) << std::endl;
 }
