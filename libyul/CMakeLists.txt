@@ -99,6 +99,8 @@ add_library(yul
 	backends/evm/StackLayoutGenerator.h
 	backends/evm/VariableReferenceCounter.h
 	backends/evm/VariableReferenceCounter.cpp
+	backends/evm/ssa/AStarShuffler.cpp
+	backends/evm/ssa/AStarShuffler.h
 	optimiser/ASTCopier.cpp
 	optimiser/ASTCopier.h
 	optimiser/ASTWalker.cpp
