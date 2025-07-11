@@ -21,12 +21,14 @@
 #include "libsolidity/parsing/Parser.h"
 
 #include "libyul/optimiser/SimplificationRules.h"
+#include "range/v3/algorithm/equal.hpp"
 #include "range/v3/view/concat.hpp"
 
 #include <libyul/backends/evm/SSACFGStack.h>
 
 #include <queue>
 #include <unordered_set>
+#include <utility>
 
 namespace solidity::yul::ssa
 {
@@ -45,48 +47,86 @@ public:
 
 
 private:
-	struct SearchState
+	using Cost = size_t;
+
+	struct State
 	{
-		SearchState(std::vector<Slot> const& _tail, std::vector<Slot> const& _head)
+		State(Stack::Data _stackData, size_t const _numHead): stackData(std::move(_stackData)), numHead(_numHead)
 		{
-			for (auto const& slot: ranges::views::concat(_tail, _head))
+			for (auto const& slot: stackData)
 			{
 				auto const [it, _] = histogram.try_emplace(slot);
 				++it->second;
 			}
 		}
-		std::vector<Slot> stackTail{};
-		std::vector<Slot> stackHead{};
+		Stack::Data stackData;
+		size_t numHead;
 		std::map<Slot, size_t> histogram;
 		size_t cumulativeCost = 0;
 
-		bool operator==(SearchState const& _other) const
+		bool operator==(State const& _other) const
 		{
-			return stackHead == _other.stackHead && histogram == _other.histogram;
+			if (_other.stack.size() != stack.size())
+				return false;
+
+			bool const headEqual = ranges::equal(
+				stack.data().rbegin(),
+				stack.data().rbegin() + std::min(numHead, stack.size()),
+				_other.stack.data().rbegin()
+			);
+			return headEqual && histogram == _other.histogram;
 		}
 	};
 
-	using Cost = size_t;
-
-	void shuffle(SearchState const& _start, SearchState const& _target, size_t _maxIter, size_t _maxNodes)
+	struct Operation
 	{
+		enum class Type
+		{
+			PUSH, POP, SWAP, DUP
+		};
+		Type type;
+		size_t arg{}; // for dup and swap
+		std::unique_ptr<u256> pushValue{};
+		Cost cost() const
+		{
+			// todo maybe non-uniform
+			return 1;
+		}
+
+		void apply(Stack& _stack) const
+		{
+			// todo
+			_stack.pop();
+		}
+	};
+
+	struct Node
+	{
+		State state;
+		Cost costFromStart{};
+		Cost heuristicCost{};
+		std::vector<Operation> path;
+	};
+
+	std::vector<Operation> shuffle(Stack const& _stack, State const& _target, size_t const _maxIter, size_t const _maxNodes)
+	{
+		// todo split into head and tail
+		State const start ({}, _stack.data());
 		// Check if start is already the target
-		if (_start == _target) {
-			result.found = true;
-			result.totalCost = Cost();
-			return result;
+		if (start == _target) {
+			return {};
 		}
 
 		// Initialize search data structures
-		std::priority_queue<SearchNode> openSet;
-		std::unordered_set<SearchState> closedSet;
-		std::unordered_map<SearchState, Cost> bestCosts;
+		std::priority_queue<Node> openSet;
+		std::unordered_set<State> closedSet;
+		std::unordered_map<State, Cost> bestCosts;
 
 		// Add start node
-		Cost startHeuristic = calculateHeuristic(_start, _target, _canBeFreelyGenerated, _config);
-		auto startNode = std::make_shared<SearchNode>(_start, Cost(), startHeuristic, std::vector<Operation>());
+		Cost startHeuristic = 0; // calculateHeuristic(_start, _target, _canBeFreelyGenerated, _config);
+		auto startNode = std::make_shared<Node>(start, Cost(), startHeuristic, std::vector<Operation>());
 		openSet.push(*startNode);
-		bestCosts[_start] = Cost();
+		bestCosts[start] = {};
 
 		// Search statistics
 		size_t iterations = 0;
@@ -95,7 +135,7 @@ private:
 
 		while (!openSet.empty() && iterations < _maxIter && nodesExplored < _maxNodes) {
 			// Get the node with lowest f-cost
-			SearchNode current = openSet.top();
+			Node current = openSet.top();
 			openSet.pop();
 			iterations++;
 
@@ -110,12 +150,7 @@ private:
 
 			// Check if we've reached the target
 			if (current.state == _target) {
-				result.found = true;
-				result.operations = current.path;
-				result.totalCost = current.gCost;
-				result.nodesExplored = nodesExplored;
-				result.nodesPruned = nodesPruned;
-				return result;
+				return current.path;
 			}
 
 			// Generate successor states
@@ -169,7 +204,7 @@ private:
 				newPath.push_back(operation);
 
 				// Create successor node
-				auto successorNode = std::make_shared<SearchNode>(nextState, newGCost, heuristicCost, newPath, std::make_shared<SearchNode>(current));
+				auto successorNode = std::make_shared<Node>(nextState, newGCost, heuristicCost, newPath, std::make_shared<Node>(current));
 				openSet.push(*successorNode);
 				bestCosts[nextState] = newGCost;
 			}
