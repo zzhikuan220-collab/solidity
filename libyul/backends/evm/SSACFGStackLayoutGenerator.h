@@ -106,7 +106,7 @@ private:
 	explicit SSACFGStackLayoutGenerator(SSACFGLiveness const& _liveness);
 	~SSACFGStackLayoutGenerator();
 
-	Stack layoutToStack(ssa::StackData const& _layout) const;
+	static Stack::Data layoutToStack(ssa::StackData const& _layout);
 	static ssa::StackData stackToLayout(Stack::Data const& _stack, SSACFG::BlockId const& _blockId);
 
 	/// Creates a stack tail by JUNKing everything that isn't in the liveness set of current and popping stuff that is
@@ -138,8 +138,8 @@ private:
 	std::set<SSACFG::ValueId> preImage(std::set<SSACFG::ValueId> const& _valueIds,  SSACFG::BlockId const& _from, SSACFG::BlockId const& _to) const;
 
 	// todo unify with code transform
-	Stack shuffleStack(
-		Stack const& _source, std::vector<Slot> _target, std::optional<SSACFG::Edge> const& _edge = std::nullopt) const;
+	//Stack shuffleStack(
+	//	Stack const& _source, std::vector<Slot> _target, std::optional<SSACFG::Edge> const& _edge = std::nullopt) const;
 
 	static void reduceStackToLiveness(Stack& _stack, std::set<SSACFG::ValueId> const& _livenessPreImage, bool _introduceJunk);
 	static void handlePhiFunctions(Stack::Data& _stackData, ssa::ReversePhiFunctionTransform const& _phiInverse, std::set<SSACFG::ValueId> const& _liveness);

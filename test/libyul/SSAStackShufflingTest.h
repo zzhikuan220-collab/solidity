@@ -82,7 +82,9 @@ private:
 
 	size_t m_maximumStackDepth{};
 	std::unique_ptr<SSACFG> m_cfg;
+	Stack::Data m_sourceData;
 	Stack m_sourceStack;
+	Stack::Data m_targetData;
 	Stack m_targetStack;
 	std::map<std::string, FunctionCall> m_functions;
 	std::map<std::string, Scope::Variable> m_variables;

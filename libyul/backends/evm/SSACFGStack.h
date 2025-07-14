@@ -118,26 +118,26 @@ public:
 	using Data = std::vector<Slot>;
 
 	Stack(
-		Data _data,
+		Data& _data,
 		Callbacks _callbacks,
 		CanBeFreelyGenerated _canBeFreelyGenerated
 	):
-		m_data(std::move(_data)),
+		m_data(&_data),
 		m_callbacks(std::move(_callbacks)),
 		m_canBeFreelyGenerated(std::move(_canBeFreelyGenerated))
 	{}
 
 	Slot const& top() const
 	{
-		yulAssert(!m_data.empty());
-		return m_data.back();
+		yulAssert(!m_data->empty());
+		return m_data->back();
 	}
 
 	void swap(size_t const _depth)
 	{
-		yulAssert(m_data.size() > _depth);
+		yulAssert(m_data->size() > _depth);
 		yulAssert(1 <= _depth && _depth <= reachableStackDepth);
-		std::swap(m_data[m_data.size() - _depth - 1], m_data.back());
+		std::swap((*m_data)[m_data->size() - _depth - 1], m_data->back());
 		if constexpr (!std::is_same_v<Callbacks, NoOpStackManipulationCallbacks<Slot>>)
 			m_callbacks.swap(_depth);
 	}
@@ -145,8 +145,8 @@ public:
 	template<bool callback=true>
 	void pop()
 	{
-		yulAssert(!m_data.empty());
-		m_data.pop_back();
+		yulAssert(!m_data->empty());
+		m_data->pop_back();
 		if constexpr (callback && !std::is_same_v<Callbacks, NoOpStackManipulationCallbacks<Slot>>)
 			m_callbacks.pop();
 	}
@@ -154,15 +154,15 @@ public:
 	template<bool callback=true>
 	void push(Slot const& _slot)
 	{
-		m_data.emplace_back(_slot);
+		m_data->emplace_back(_slot);
 		if constexpr (callback && !std::is_same_v<Callbacks, NoOpStackManipulationCallbacks<Slot>>)
 			m_callbacks.push(_slot);
 	}
 
 	void declareJunk(size_t const _depth)
 	{
-		yulAssert(_depth < m_data.size());
-		m_data[m_data.size() - _depth - 1] = JunkSlot{};
+		yulAssert(_depth < m_data->size());
+		(*m_data)[m_data->size() - _depth - 1] = JunkSlot{};
 	}
 
 	void dup(Slot const& _slot)
@@ -170,7 +170,7 @@ public:
 		std::optional<size_t> const depth = slotDepth(_slot);
 		yulAssert(depth, fmt::format("Invalid dup, could not find slot"));
 		yulAssert(1 <= *depth + 1 && *depth + 1 <= reachableStackDepth, "Stack too deep");
-		m_data.push_back(m_data[m_data.size() - *depth - 1]);
+		m_data->push_back((*m_data)[m_data->size() - *depth - 1]);
 		if constexpr (!std::is_same_v<Callbacks, NoOpStackManipulationCallbacks<Slot>>)
 			m_callbacks.dup(*depth + 1);
 	}
@@ -185,12 +185,12 @@ public:
 
 	size_t size() const
 	{
-		return m_data.size();
+		return m_data->size();
 	}
 
 	std::optional<size_t> slotDepth(Slot const& _value) const
 	{
-		return util::findOffset(m_data | ranges::views::reverse, _value);
+		return util::findOffset((*m_data) | ranges::views::reverse, _value);
 	}
 
 	bool canBeFreelyGenerated(Slot const& _slot) const
@@ -198,13 +198,13 @@ public:
 		return m_canBeFreelyGenerated(_slot);
 	}
 
-	Slot const& operator[](size_t const _index) const { return m_data[_index]; }
-	auto begin() const { return ranges::begin(m_data); }
-	auto end() const { return ranges::end(m_data); }
+	Slot const& operator[](size_t const _index) const { return (*m_data)[_index]; }
+	auto begin() const { return ranges::begin(*m_data); }
+	auto end() const { return ranges::end(*m_data); }
 
 	size_t numJunkSlots() const
 	{
-		return static_cast<size_t>(ranges::count_if(m_data, [](Slot const& _slot) { return std::holds_alternative<JunkSlot>(_slot); } ));
+		return static_cast<size_t>(ranges::count_if(*m_data, [](Slot const& _slot) { return std::holds_alternative<JunkSlot>(_slot); } ));
 	}
 
 	void addJunkTail(std::ptrdiff_t const _numJunk)
@@ -214,19 +214,19 @@ public:
 			return;
 
 		// append junk (so it's at the stack top)
-		m_data.resize(m_data.size() + static_cast<std::size_t>(_numJunk));
-		std::fill_n(m_data.rbegin(), static_cast<std::size_t>(_numJunk), JunkSlot{});
+		m_data->resize(m_data->size() + static_cast<std::size_t>(_numJunk));
+		std::fill_n(m_data->rbegin(), static_cast<std::size_t>(_numJunk), JunkSlot{});
 		// rotate to the right by numJunk elements, now they're in the tail
-		std::rotate(m_data.rbegin(), m_data.rbegin() + static_cast<std::ptrdiff_t>(_numJunk), m_data.rend());
+		std::rotate(m_data->rbegin(), m_data->rbegin() + static_cast<std::ptrdiff_t>(_numJunk), m_data.rend());
 	}
 
 	Data const& data() const
 	{
-		return m_data;
+		return *m_data;
 	}
 
 private:
-	Data m_data;
+	Data* m_data;
 	Callbacks m_callbacks;
 	CanBeFreelyGenerated m_canBeFreelyGenerated;
 };

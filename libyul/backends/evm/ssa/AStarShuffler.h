@@ -40,15 +40,8 @@ public:
 	using Stack = StackType;
 	using Slot = typename StackType::Slot;
 
-	void shuffle(Stack& _stack, std::vector<Slot> const& _targetTail, std::vector<Slot> const& _targetHead)
-	{
-
-	}
-
-
 private:
 	using Cost = size_t;
-
 	struct Operation
 	{
 		enum class Type
@@ -174,6 +167,18 @@ private:
 		return cost;
 	}
 
+
+	static std::vector<std::tuple<State, Operation>> generateSuccessors(State const& _state)
+	{
+		std::vector<std::tuple<State, Operation>> result;
+		for (size_t i = 1; i < std::min(_state.stackData.size(), 16); ++i)
+		{
+			result.emplace_back(_state, Operation{Operation::Type::SWAP, i});
+
+		}
+		return result;
+	}
+
 	static std::vector<Operation> shuffle(
 		std::vector<Slot> const& _initial,
 		std::vector<Slot> const& _target,
@@ -210,7 +215,7 @@ private:
 
 		while (!openSet.empty() && iterations < _maxIter && nodesExplored < _maxNodes) {
 			// Get the node with lowest f-cost
-			Node current = openSet.top();
+			Node const current = openSet.top();
 			openSet.pop();
 			iterations++;
 
@@ -220,7 +225,7 @@ private:
 			}
 
 			// Add to closed set
-			closedSet.insert(current);
+			closedSet.insert(current.state);
 			nodesExplored++;
 
 			// Check if we've reached the target
@@ -228,42 +233,19 @@ private:
 				return current.path;
 			}
 
-			// Generate successor states
-			auto successors = generateSuccessors(current.state, _target, _canBeFreelyGenerated, _config);
-
-			for (auto const& [nextState, operation]: successors)
+			for (auto const& [nextState, operation]: generateSuccessors(current.state))
 			{
-				// Check if this state should be pruned
-				/*if (_config.useConstraintPruning) {
-					Cost heuristicCost = calculateHeuristic(nextState, _target, _canBeFreelyGenerated, _config);
-					if (ConstraintManager::shouldPrune(nextState, _target, current.gCost + operation.cost, heuristicCost, _canBeFreelyGenerated)) {
-						nodesPruned++;
-						continue;
-					}
-				}
-
-				// Check adaptive pruning
-				if (_config.useAdaptivePruning) {
-					if (ConstraintManager::shouldPruneAdaptive(nextState, _target, current.gCost + operation.cost, iterations, _config.maxIterations)) {
-						nodesPruned++;
-						continue;
-					}
-				}*/
-
 				// Skip if already in closed set
-				if (closedSet.contains(nextState))
-				{
+				if (closedSet.contains(&nextState))
 					continue;
-				}
 
 				// Calculate costs
 				Cost newGCost = current.gCost + operation.cost;
 				// Cost constraintPenalty = ConstraintManager::calculateConstraintPenalty(nextState, _canBeFreelyGenerated);
-				newGCost = newGCost; //  + constraintPenalty
 
 				// Check if we've found a better path to this state
 				if (
-					auto it = bestCosts.find(nextState);
+					auto it = bestCosts.find(&nextState);
 					it != bestCosts.end() && newGCost >= it->second.total()
 				)
 				{
@@ -281,7 +263,7 @@ private:
 				states.push_back(std::move(nextState));
 				auto const* statePtr = states.back();
 				openSet.push(Node{statePtr, newGCost, heuristicCost, newPath});
-				bestCosts[nextState] = newGCost;
+				bestCosts[&states.back()] = newGCost;
 			}
 		}
 
@@ -294,5 +276,11 @@ private:
 		}
 		yulAssert(false, "No solution found");
 	}
+public:
+	void shuffle(Stack& _stack, std::vector<Slot> const& _targetTail, std::vector<Slot> const& _targetHead)
+	{
+		auto const ops = shuffle(_stack.data(), _targetTail + _targetHead, _targetHead.size(), 1000, 1000);
+	}
+
 };
 }

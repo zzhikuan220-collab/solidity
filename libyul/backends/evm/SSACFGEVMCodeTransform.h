@@ -148,6 +148,7 @@ private:
 	SSACFGStackLayout const m_stackLayout;
 	std::vector<StackTooDeepError> m_stackErrors;
 	AssemblyCallbacks m_assemblyCallbacks;
+	SSACFGStack::Data m_stackData;
 	SSACFGStack m_stack;
 	FunctionLabels const m_functionLabels;
 	SSACFG::BlockId m_currentBlock;

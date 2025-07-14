@@ -79,8 +79,10 @@ SSAStackShufflingTest::SSAStackShufflingTest(std::string const& _filename):
 		cfg->block(cfg->entry).exit = SSACFG::BasicBlock::MainExit{};
 		return cfg;
 	}()),
-	m_sourceStack(parse(m_reader.source()), {}, {&*m_cfg}),
-	m_targetStack(parse(m_reader.source()), {}, {&*m_cfg})
+	m_sourceData(parse(m_reader.source())),
+	m_sourceStack(m_sourceData, {}, {&*m_cfg}),
+	m_targetData(parse(m_reader.source())),
+	m_targetStack(m_targetData, {}, {&*m_cfg})
 {
 	processSettings();
 	m_source = m_reader.source();

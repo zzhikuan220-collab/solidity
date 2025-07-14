@@ -143,7 +143,8 @@ SSACFGEVMCodeTransform::SSACFGEVMCodeTransform
 		.assembly = &_assembly,
 		.returnLabels = &m_returnLabels
 	},
-	m_stack(m_stackLayout.blockLayouts[m_cfg.entry.value].stackIn, m_assemblyCallbacks, {&_cfg}),
+	m_stackData(m_stackLayout.blockLayouts[m_cfg.entry.value].stackIn),
+	m_stack(m_stackData, m_assemblyCallbacks, {&_cfg}),
 	m_functionLabels(std::move(_functionLabels)),
 	m_generatedBlocks(_cfg.numBlocks(), false)
 {
@@ -175,7 +176,8 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 
 	auto const& blockLayout = m_stackLayout[_block];
 	assertLayoutCompatibility(m_stack.data(), blockLayout.stackIn);
-	m_stack = SSACFGStack(blockLayout.stackIn, m_assemblyCallbacks, {&m_cfg}); // this can set some stuff to junk
+	m_stackData = blockLayout.stackIn;
+	m_stack = SSACFGStack(m_stackData, m_assemblyCallbacks, {&m_cfg}); // this can set some stuff to junk
 	// todo assert on all exits that the stack height is fine
 	yulAssert(static_cast<int>(m_stack.size()) == m_assembly.stackHeight());
 
@@ -200,7 +202,7 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 			), operation.kind);
 			std::cout << "\t\t" << operationName << ": " << stackToString(m_stack.data(), m_cfg) << " -> " << stackToString(operationStackIn, m_cfg) << std::endl;
 		}
-		m_stack = DanielShuffler<SSACFGStack>::shuffle(m_stack, {}, operationStackIn);
+		DanielShuffler<SSACFGStack>::shuffle(m_stack, {}, operationStackIn);
 
 		// Assert that we have the inputs of the operation on stack top.
 		yulAssert(m_stack.size() >= operation.inputs.size() + (hasReturnLabel ? 1 : 0));
@@ -211,7 +213,7 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 			yulAssert(stackEntry == Slot{input});
 		if (hasReturnLabel)
 		{
-			auto const returnLabelSlot = *(ranges::rbegin(m_stack) + static_cast<std::ptrdiff_t>(operation.inputs.size()));
+			auto const returnLabelSlot = *(ranges::rbegin(m_stack.data()) + static_cast<std::ptrdiff_t>(operation.inputs.size()));
 			yulAssert(std::holds_alternative<SSACFG::Call>(operation.kind));
 			yulAssert(returnLabelSlot == Slot{ssa::FunctionReturnLabel{&std::get<SSACFG::Call>(operation.kind).call.get()}});
 		}
@@ -230,7 +232,7 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 		// yulAssert(static_cast<int>(m_stack.size()) == m_assembly.stackHeight());
 		yulAssert(m_stack.size() == baseHeight + operation.outputs.size());
 		for (auto const& [stackEntry, output]: ranges::zip_view(
-			m_stack | ranges::views::take_last(operation.outputs.size()),
+			m_stack.data() | ranges::views::take_last(operation.outputs.size()),
 			operation.outputs
 		))
 			yulAssert(stackEntry == Slot{output});
@@ -272,7 +274,7 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 				// update symbolic stack by popping the condition
 				m_stack.pop<false>();
 			}
-			Stack const nonZeroStack = m_stack;
+			StackData const nonZeroStackData = m_stackData;
 
 			if constexpr (debugOutput)
 				std::cout << "\t\tJUMPI Creating stack for zero layout (to Block " << _conditionalJump.zero.value << ") " << stackToString(m_stack.data(), m_cfg) << " -> " << ssa::stackToString(m_stackLayout[_conditionalJump.zero].stackIn, m_cfg) << std::endl;
@@ -286,7 +288,7 @@ void SSACFGEVMCodeTransform::operator()(SSACFG::BlockId const _block)
 			if (!m_generatedBlocks[_conditionalJump.zero.value])
 				(*this)(_conditionalJump.zero);
 
-			m_stack = nonZeroStack;
+			m_stackData = nonZeroStackData;
 			m_assembly.setStackHeight(static_cast<int>(m_stack.size()));
 			if (!m_generatedBlocks[_conditionalJump.nonZero.value])
 				(*this)(_conditionalJump.nonZero);
@@ -402,11 +404,11 @@ void SSACFGEVMCodeTransform::shuffleStack(std::vector<Slot> _target, std::option
 			return _target;
 		return _target | ranges::views::transform(transform) | ranges::to<std::vector>;
 	}();
-	m_stack = DanielShuffler<SSACFGStack>::shuffle(
+	DanielShuffler<SSACFGStack>::shuffle(
 		m_stack,
 		{}, transformedTarget
 	);
 	assertLayoutCompatibility(m_stack.data(), transformedTarget);
 	//yulAssert(transformedTarget == m_stack.stackData());
-	m_stack = SSACFGStack(_target, m_assemblyCallbacks, {&m_cfg});
+	m_stackData = _target;
 }
