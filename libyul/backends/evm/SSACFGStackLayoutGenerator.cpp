@@ -16,6 +16,9 @@
 */
 // SPDX-License-Identifier: GPL-3.0
 
+#include "ssa/AStarShuffler.h"
+
+
 #include <libyul/backends/evm/SSACFGStackLayoutGenerator.h>
 
 #include <libyul/backends/evm/ControlFlow.h>
@@ -247,16 +250,20 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 	yulAssert(ranges::none_of(operationLiveOut, IsSSACFGLiteral(m_cfg)));
 
 	auto const liveOutWithoutOutputsSet = operationLiveOut - operation.outputs;
-	auto const liveOutWithoutOutputs = std::set<Slot>(liveOutWithoutOutputsSet.begin(), liveOutWithoutOutputsSet.end());
+	auto const liveOutWithoutOutputs = std::vector<Slot>(liveOutWithoutOutputsSet.begin(), liveOutWithoutOutputsSet.end());
 	std::vector<Slot> requiredStackTop;
 	if (auto const* call = std::get_if<SSACFG::Call>(&operation.kind))
 		if (call->canContinue)
 			requiredStackTop.emplace_back(ssa::FunctionReturnLabel{&call->call.get()});
 	requiredStackTop += operation.inputs;
 
-	//if constexpr(debugOutput)
-	//	std::cout << "{ " << stackToString(stackToLayout(std::vector(liveOutWithoutOutputs.begin(), liveOutWithoutOutputs.end()), _blockId), m_cfg) << " } + " << stackToString(stackToLayout(requiredStackTop, _blockId), m_cfg) << ")\n";
-	[&]
+	static auto constexpr slotIsCompatible = [](Slot const& _source, Slot const& _target)
+	{
+		return std::holds_alternative<ssa::JunkSlot>(_target) || _source == _target;
+	};
+	BlockForwardAStarShuffler<Stack, slotIsCompatible>::shuffle(_stack, liveOutWithoutOutputs, requiredStackTop);
+
+	/*[&]
 	{
 		if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_blockId))
 		{
@@ -269,7 +276,7 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 			std::cout << "{ " << stackToString(stackToLayout(pileOfJunk(junkTailSize(_stack.data())), _blockId), m_cfg) << " } + " << stackToString(stackToLayout(requiredStackTop, _blockId), m_cfg) << ")\n";
 		auto const v = _stack.data() | ranges::views::transform([&](auto const& _slot) -> Slot { return liveOutWithoutOutputs.contains(_slot) ? _slot : ssa::JunkSlot{}; }) | ranges::to<std::vector<Slot>>;
 		return DanielShuffler<Stack>::shuffle(_stack, {}, v + requiredStackTop);
-	}();
+	}();*/
 	m_stackLayout[_blockId].operationIn[_operationIndex] = stackToLayout(_stack.data(), _blockId);
 
 	for (size_t i = 0; i < requiredStackTop.size(); ++i)

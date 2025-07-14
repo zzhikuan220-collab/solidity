@@ -63,7 +63,7 @@ function gnosis_safe_test
     # NOTE: The patterns below intentionally have hard-coded versions.
     # When the upstream updates them, there's a chance we can just remove the regex.
     sed -i 's|"@gnosis\.pm/mock-contract": "\^4\.0\.0"|"@gnosis.pm/mock-contract": "github:solidity-external-tests/mock-contract#master_080"|g' package.json
-    sed -i 's|"@openzeppelin/contracts": "\^3\.4\.0"|"@openzeppelin/contracts": "^4.0.0"|g' package.json
+    sed -i 's|"@openzeppelin/contracts": "\^3\.4\.1"|"@openzeppelin/contracts": "^4.0.0"|g' package.json
 
     # Disable two tests failing due to Hardhat's heuristics not yet updated to handle solc 0.8.10.
     # TODO: Remove this when Hardhat implements them (https://github.com/nomiclabs/hardhat/issues/2451).
@@ -74,7 +74,7 @@ function gnosis_safe_test
     # TODO: Remove this when Hardhat adjusts heuristics for IR (https://github.com/nomiclabs/hardhat/issues/3365).
     sed -i "s|\(it\)\((\"should not allow to call setup on singleton\"\)|\1.skip\2|g" test/core/Safe.Setup.spec.ts
     sed -i "s|\(it\)\((\"can be used only via DELEGATECALL opcode\"\)|\1.skip\2|g" test/libraries/SignMessageLib.spec.ts
-    sed -i "s|it\((\"can only be called from Safe itself\"\)|it.skip\1|g" test/libraries/Migration.spec.ts
+    #sed -i "s|it\((\"can only be called from Safe itself\"\)|it.skip\1|g" test/libraries/Migration.spec.ts
 
     neutralize_package_lock
     neutralize_package_json_hooks

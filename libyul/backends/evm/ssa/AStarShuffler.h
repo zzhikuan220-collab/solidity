@@ -48,9 +48,9 @@ private:
 		{
 			PUSH, POP, SWAP, DUP
 		};
-		Type type;
+		Type type{};
 		size_t arg{}; // for dup and swap
-		std::unique_ptr<u256> pushValue{};
+		std::optional<u256> pushValue{};
 		Cost cost() const
 		{
 			return 1;
@@ -58,8 +58,22 @@ private:
 
 		void apply(Stack& _stack) const
 		{
-			// todo
-			_stack.pop();
+			switch (type)
+			{
+			case Type::PUSH:
+				yulAssert(pushValue);
+				_stack.push(*pushValue);
+				break;
+			case Type::POP:
+				_stack.pop();
+				break;
+			case Type::SWAP:
+				_stack.swap(arg);
+				break;
+			case Type::DUP:
+				_stack.dup(arg);
+				break;
+			}
 		}
 	};
 
@@ -83,25 +97,35 @@ private:
 
 			bool const headEqual = ranges::equal(
 				stackData.rbegin(),
-				stackData.rbegin() + std::min(numHead, stackData.size()),
-				_other.stackData.rbegin()
+				stackData.rbegin() + static_cast<std::ptrdiff_t>(std::min(numHead, stackData.size())),
+				_other.stackData.rbegin(),
+				_other.stackData.rbegin() + static_cast<std::ptrdiff_t>(std::min(numHead, stackData.size()))
 			);
 			return headEqual && histogram == _other.histogram;
 		}
 
-		bool operator<(State const& _other) const
-		{
-			if (ranges::less{}(
-					stackData.rbegin(),
-					stackData.rbegin() + std::min(numHead, stackData.size()),
-					_other.stackData.rbegin()))
-				return true;
-			if (ranges::less{}(
-					_other.stackData.rbegin(),
-					_other.stackData.rbegin() + std::min(_other.numHead, _other.stackData.size()),
-					stackData.rbegin()))
-				return false;
+		bool operator<(State const& _other) const {
+			// 1. Compare stack sizes first
+			if (stackData.size() != _other.stackData.size())
+				return stackData.size() < _other.stackData.size();
 
+			// 2. Compare heads lexicographically
+			size_t const headSize = std::min(numHead, stackData.size());
+			size_t const otherHeadSize = std::min(_other.numHead, _other.stackData.size());
+
+			if (headSize != otherHeadSize)
+				return headSize < otherHeadSize;
+
+			// Compare head elements
+			for (size_t i = 0; i < headSize; ++i) {
+				auto thisElem = stackData[stackData.size() - 1 - i];  // Top element
+				auto otherElem = _other.stackData[_other.stackData.size() - 1 - i];
+
+				if (thisElem < otherElem) return true;
+				if (otherElem < thisElem) return false;
+			}
+
+			// 3. If heads identical, compare full histograms (equivalent to tail comparison)
 			return histogram < _other.histogram;
 		}
 
@@ -143,7 +167,7 @@ private:
 
 		while (it_a != _from.end() && it_b != _to.end()) {
 			if (it_a->first == it_b->first) {
-				cost += std::abs(static_cast<std::ptrdiff_t>(it_a->second) - static_cast<std::ptrdiff_t>(it_b->second));
+				cost += static_cast<Cost>(std::abs(static_cast<std::ptrdiff_t>(it_a->second) - static_cast<std::ptrdiff_t>(it_b->second)));
 				++it_a;
 				++it_b;
 			} else if (it_a->first < it_b->first) {
@@ -171,11 +195,21 @@ private:
 	static std::vector<std::tuple<State, Operation>> generateSuccessors(State const& _state)
 	{
 		std::vector<std::tuple<State, Operation>> result;
-		for (size_t i = 1; i < std::min(_state.stackData.size(), 16); ++i)
+		if (!_state.stackData.empty())
 		{
-			result.emplace_back(_state, Operation{Operation::Type::SWAP, i});
-
+			// todo this isn't correct, swap1 swaps 1st and 2nd element etc, this needs to account for that and
+			//		make sure the stack is big enough (swapX needs X+1 elements on stack)
+			for (size_t i = 0; i < std::min(_state.stackData.size(), static_cast<size_t>(16)); ++i)
+				result.emplace_back(_state, Operation{Operation::Type::SWAP, i});
+			// todo only dup if necessary (if we need more or when something is about to go out of reach of the 16 slot limit)
+			for (size_t i = 0; i < std::min(_state.stackData.size(), static_cast<size_t>(16)); ++i)
+				result.emplace_back(_state, Operation{Operation::Type::DUP, i});
+			// todo only if this doesn't destroy something that we can't get back
+			result.emplace_back(_state, Operation{Operation::Type::POP});
 		}
+		// todo all pushes that we need in the target and that aren't there in the source (otherwise dup if we
+		//		already have one and can reach it)
+		result.emplace_back(_state, Operation{Operation::Type::PUSH, 0, u256(0)});
 		return result;
 	}
 
@@ -189,7 +223,6 @@ private:
 	{
 		yulAssert(_target.size() >= _numHead);
 		State const targetState (_target, _numHead);
-		// todo this isn't optimal
 		State start (_initial, _numHead);
 		// Check if start is already the target
 		if (start == targetState) {
@@ -206,7 +239,7 @@ private:
 		// Add start node
 		Cost startHeuristic = heuristicCost(start.histogram, targetState.histogram);
 		openSet.push(Node {&start, 0, startHeuristic, {}});
-		bestCosts[start] = {};
+		bestCosts[&start] = {};
 
 		// Search statistics
 		size_t iterations = 0;
@@ -229,41 +262,41 @@ private:
 			nodesExplored++;
 
 			// Check if we've reached the target
-			if (current == _target) {
-				return current.path;
+			if (*current.state == targetState) {
+				return current.operations;
 			}
 
-			for (auto const& [nextState, operation]: generateSuccessors(current.state))
+			for (auto const& [nextState, operation]: generateSuccessors(*current.state))
 			{
 				// Skip if already in closed set
 				if (closedSet.contains(&nextState))
 					continue;
 
 				// Calculate costs
-				Cost newGCost = current.gCost + operation.cost;
+				Cost newGCost = current.gCost + operation.cost();
 				// Cost constraintPenalty = ConstraintManager::calculateConstraintPenalty(nextState, _canBeFreelyGenerated);
 
 				// Check if we've found a better path to this state
 				if (
 					auto it = bestCosts.find(&nextState);
-					it != bestCosts.end() && newGCost >= it->second.total()
+					it != bestCosts.end() && newGCost >= it->second
 				)
 				{
 					continue;
 				}
 
 				// Calculate heuristic cost
-				Cost heuristicCost = calculateHeuristic(nextState.histogram, targetState.histogram);
+				Cost hCost = heuristicCost(nextState.histogram, targetState.histogram);
 
 				// Create new path
-				std::vector<Operation> newPath = current.path;
+				std::vector<Operation> newPath = current.operations;
 				newPath.push_back(operation);
 
 				// Create successor node
 				states.push_back(std::move(nextState));
-				auto const* statePtr = states.back();
-				openSet.push(Node{statePtr, newGCost, heuristicCost, newPath});
-				bestCosts[&states.back()] = newGCost;
+				auto const* statePtr = &states.back();
+				openSet.push(Node{statePtr, newGCost, hCost, newPath});
+				bestCosts[statePtr] = newGCost;
 			}
 		}
 
@@ -277,9 +310,11 @@ private:
 		yulAssert(false, "No solution found");
 	}
 public:
-	void shuffle(Stack& _stack, std::vector<Slot> const& _targetTail, std::vector<Slot> const& _targetHead)
+	static void shuffle(Stack& _stack, std::vector<Slot> const& _targetTail, std::vector<Slot> const& _targetHead)
 	{
 		auto const ops = shuffle(_stack.data(), _targetTail + _targetHead, _targetHead.size(), 1000, 1000);
+		for (auto const& op: ops)
+			op.apply(_stack);
 	}
 
 };
