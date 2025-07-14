@@ -50,7 +50,7 @@ private:
 		};
 		Type type{};
 		size_t arg{}; // for dup and swap
-		std::optional<u256> pushValue{};
+		std::optional<SSACFG::ValueId> pushValue{};
 		Cost cost() const
 		{
 			return 1;
@@ -197,18 +197,36 @@ private:
 		std::vector<std::tuple<State, Operation>> result;
 		if (!_state.stackData.empty())
 		{
-			// todo this isn't correct, swap1 swaps 1st and 2nd element etc, this needs to account for that and
-			//		make sure the stack is big enough (swapX needs X+1 elements on stack)
-			for (size_t i = 0; i < std::min(_state.stackData.size(), static_cast<size_t>(16)); ++i)
-				result.emplace_back(_state, Operation{Operation::Type::SWAP, i});
-			// todo only dup if necessary (if we need more or when something is about to go out of reach of the 16 slot limit)
-			for (size_t i = 0; i < std::min(_state.stackData.size(), static_cast<size_t>(16)); ++i)
-				result.emplace_back(_state, Operation{Operation::Type::DUP, i});
+			// Generate SWAP operations
+			for (size_t i = 1; i <= std::min(_state.stackData.size() - 1, static_cast<size_t>(16)); ++i)
+			{
+				// todo double check
+				if (i < _state.stackData.size()) // Ensure enough elements for SWAPX
+				{
+					result.emplace_back(_state.stackData, Operation{Operation::Type::SWAP, i, std::nullopt});
+					Stack stack(std::get<0>(result.back()), /*todo args*/);
+					stack.swap(i);
+				}
+			}
+
+			// Generate DUP operations
+			for (size_t i = 1; i <= std::min(_state.stackData.size(), static_cast<size_t>(16)); ++i)
+			{
+				// todo only dup if its beneficial (?)
+				if (i <= _state.stackData.size())
+				{
+					result.emplace_back(_state.stackData, Operation{Operation::Type::DUP, i, std::nullopt});
+					Stack stack(std::get<0>(result.back()), /*todo args*/);
+					stack.dup(i);
+				}
+			}
+
 			// todo only if this doesn't destroy something that we can't get back
 			result.emplace_back(_state, Operation{Operation::Type::POP});
 		}
 		// todo all pushes that we need in the target and that aren't there in the source (otherwise dup if we
 		//		already have one and can reach it)
+		// todo this doesn't need the u256 value but the SSACFG::ValueId
 		result.emplace_back(_state, Operation{Operation::Type::PUSH, 0, u256(0)});
 		return result;
 	}
