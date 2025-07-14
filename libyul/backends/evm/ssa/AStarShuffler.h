@@ -33,12 +33,12 @@
 namespace solidity::yul::ssa
 {
 
-template<auto SlotIsCompatible>
+template<typename StackType, auto SlotIsCompatible>
 class BlockForwardAStarShuffler
 {
 public:
-	using Stack = Stack<StackSlot>;
-	using Slot = Stack::Slot;
+	using Stack = StackType;
+	using Slot = typename StackType::Slot;
 
 	void shuffle(Stack& _stack, std::vector<Slot> const& _targetTail, std::vector<Slot> const& _targetHead)
 	{
@@ -48,35 +48,6 @@ public:
 
 private:
 	using Cost = size_t;
-
-	struct State
-	{
-		State(Stack::Data _stackData, size_t const _numHead): stackData(std::move(_stackData)), numHead(_numHead)
-		{
-			for (auto const& slot: stackData)
-			{
-				auto const [it, _] = histogram.try_emplace(slot);
-				++it->second;
-			}
-		}
-		Stack::Data stackData;
-		size_t numHead;
-		std::map<Slot, size_t> histogram;
-		size_t cumulativeCost = 0;
-
-		bool operator==(State const& _other) const
-		{
-			if (_other.stack.size() != stack.size())
-				return false;
-
-			bool const headEqual = ranges::equal(
-				stack.data().rbegin(),
-				stack.data().rbegin() + std::min(numHead, stack.size()),
-				_other.stack.data().rbegin()
-			);
-			return headEqual && histogram == _other.histogram;
-		}
-	};
 
 	struct Operation
 	{
@@ -89,7 +60,6 @@ private:
 		std::unique_ptr<u256> pushValue{};
 		Cost cost() const
 		{
-			// todo maybe non-uniform
 			return 1;
 		}
 
@@ -100,38 +70,143 @@ private:
 		}
 	};
 
-	struct Node
+	struct State
 	{
-		State state;
-		Cost costFromStart{};
-		Cost heuristicCost{};
-		std::vector<Operation> path;
+		State(typename Stack::Data _stackData, size_t const _numHead):
+			stackData(std::move(_stackData)),
+			numHead(_numHead)
+		{
+			for (auto const& slot: stackData)
+			{
+				auto const [it, _] = histogram.try_emplace(slot);
+				++it->second;
+			}
+		}
+
+		bool operator==(State const& _other) const
+		{
+			if (_other.stackData.size() != stackData.size())
+				return false;
+
+			bool const headEqual = ranges::equal(
+				stackData.rbegin(),
+				stackData.rbegin() + std::min(numHead, stackData.size()),
+				_other.stackData.rbegin()
+			);
+			return headEqual && histogram == _other.histogram;
+		}
+
+		bool operator<(State const& _other) const
+		{
+			if (ranges::less{}(
+					stackData.rbegin(),
+					stackData.rbegin() + std::min(numHead, stackData.size()),
+					_other.stackData.rbegin()))
+				return true;
+			if (ranges::less{}(
+					_other.stackData.rbegin(),
+					_other.stackData.rbegin() + std::min(_other.numHead, _other.stackData.size()),
+					stackData.rbegin()))
+				return false;
+
+			return histogram < _other.histogram;
+		}
+
+		typename Stack::Data stackData;
+		size_t numHead;
+		std::map<Slot, size_t> histogram;
+		size_t cumulativeCost = 0;
 	};
 
-	std::vector<Operation> shuffle(Stack const& _stack, State const& _target, size_t const _maxIter, size_t const _maxNodes)
+	struct StatePtrComparator
 	{
-		// todo split into head and tail
-		State const start ({}, _stack.data());
+		bool constexpr operator()(State const* _a, State const* _b) const
+		{
+			yulAssert(_a);
+			yulAssert(_b);
+			return *_a < *_b;
+		}
+	};
+
+	struct Node
+	{
+		State const* state;
+		Cost gCost;
+		Cost hCost;
+		std::vector<Operation> operations;
+
+		bool operator<(Node const& _other) const
+		{
+			// we want to get a min-priority queue over nodes
+			return gCost + hCost > _other.gCost + _other.hCost;
+		}
+	};
+
+	static Cost heuristicCost(std::map<Slot, size_t> const& _from, std::map<Slot, size_t> const& _to)
+	{
+		Cost cost{};
+		auto it_a = _from.begin();
+		auto it_b = _to.begin();
+
+		while (it_a != _from.end() && it_b != _to.end()) {
+			if (it_a->first == it_b->first) {
+				cost += std::abs(static_cast<std::ptrdiff_t>(it_a->second) - static_cast<std::ptrdiff_t>(it_b->second));
+				++it_a;
+				++it_b;
+			} else if (it_a->first < it_b->first) {
+				cost += it_a->second;
+				++it_a;
+			} else {
+				cost += it_b->second;
+				++it_b;
+			}
+		}
+
+		while (it_a != _from.end()) {
+			cost += it_a->second;
+			++it_a;
+		}
+
+		while (it_b != _to.end()) {
+			cost += it_b->second;
+			++it_b;
+		}
+		return cost;
+	}
+
+	static std::vector<Operation> shuffle(
+		std::vector<Slot> const& _initial,
+		std::vector<Slot> const& _target,
+		size_t const _numHead,
+		size_t const _maxIter,
+		size_t const _maxNodes
+	)
+	{
+		yulAssert(_target.size() >= _numHead);
+		State const targetState (_target, _numHead);
+		// todo this isn't optimal
+		State start (_initial, _numHead);
 		// Check if start is already the target
-		if (start == _target) {
+		if (start == targetState) {
 			return {};
 		}
 
+		std::list<State> states;
+
 		// Initialize search data structures
 		std::priority_queue<Node> openSet;
-		std::unordered_set<State> closedSet;
-		std::unordered_map<State, Cost> bestCosts;
+		std::set<State const*, StatePtrComparator> closedSet;
+		std::map<State const*, Cost, StatePtrComparator> bestCosts;
 
 		// Add start node
-		Cost startHeuristic = 0; // calculateHeuristic(_start, _target, _canBeFreelyGenerated, _config);
-		auto startNode = std::make_shared<Node>(start, Cost(), startHeuristic, std::vector<Operation>());
-		openSet.push(*startNode);
+		Cost startHeuristic = heuristicCost(start.histogram, targetState.histogram);
+		openSet.push(Node {&start, 0, startHeuristic, {}});
 		bestCosts[start] = {};
 
 		// Search statistics
 		size_t iterations = 0;
 		size_t nodesExplored = 0;
-		size_t nodesPruned = 0;
+		// size_t nodesPruned = 0;
 
 		while (!openSet.empty() && iterations < _maxIter && nodesExplored < _maxNodes) {
 			// Get the node with lowest f-cost
@@ -145,11 +220,11 @@ private:
 			}
 
 			// Add to closed set
-			closedSet.insert(current.state);
+			closedSet.insert(current);
 			nodesExplored++;
 
 			// Check if we've reached the target
-			if (current.state == _target) {
+			if (current == _target) {
 				return current.path;
 			}
 
@@ -196,16 +271,16 @@ private:
 				}
 
 				// Calculate heuristic cost
-				Cost heuristicCost = calculateHeuristic(nextState, _target, _canBeFreelyGenerated, _config);
-				heuristicCost = heuristicCost; //  * _config.heuristicWeight
+				Cost heuristicCost = calculateHeuristic(nextState.histogram, targetState.histogram);
 
 				// Create new path
 				std::vector<Operation> newPath = current.path;
 				newPath.push_back(operation);
 
 				// Create successor node
-				auto successorNode = std::make_shared<Node>(nextState, newGCost, heuristicCost, newPath, std::make_shared<Node>(current));
-				openSet.push(*successorNode);
+				states.push_back(std::move(nextState));
+				auto const* statePtr = states.back();
+				openSet.push(Node{statePtr, newGCost, heuristicCost, newPath});
 				bestCosts[nextState] = newGCost;
 			}
 		}
