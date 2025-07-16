@@ -178,7 +178,47 @@ private:
 			}
 
 			// 3. If heads identical, compare full histograms (equivalent to tail comparison)
-			return histogram < _other.histogram;
+			auto it_a = histogram.begin();
+			auto it_b = _other.histogram.begin();
+
+			while (it_a != histogram.end() && it_b != _other.histogram.end())
+			{
+				if (it_a->first == it_b->first)
+				{
+					if (it_a->second < it_b->second)
+						return true;
+					if (it_b->second < it_a->second)
+						return false;
+					++it_a;
+					++it_b;
+				}
+				else if (it_a->first < it_b->first)
+				{
+					if (it_a->second > 0)
+						return false;
+					++it_a;
+				}
+				else
+				{
+					if (it_b->second > 0)
+						return true;
+					++it_b;
+				}
+			}
+
+			while (it_a != histogram.end()) {
+				if (it_a->second > 0)
+					return false;
+				++it_a;
+			}
+
+			while (it_b != _other.histogram.end()) {
+				if (it_b->second > 0)
+					return true;
+				++it_b;
+			}
+
+			return false;
 		}
 
 		typename Stack::Data stackData;
@@ -405,7 +445,7 @@ private:
 public:
 	static void shuffle(Stack& _stack, std::vector<Slot> const& _targetTail, std::vector<Slot> const& _targetHead)
 	{
-		auto const ops = shuffle(_stack.data(), _targetTail + _targetHead, _targetHead.size(), 10000, 10000, _stack);
+		auto const ops = shuffle(_stack.data(), _targetTail + _targetHead, _targetHead.size(), 1000000, 1000000, _stack);
 		for (auto const& op: ops)
 			op.apply(_stack);
 	}
