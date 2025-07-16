@@ -225,6 +225,11 @@ public:
 		return *m_data;
 	}
 
+	CanBeFreelyGenerated const& canBeFreelyGeneratedFunction() const
+	{
+		return m_canBeFreelyGenerated;
+	}
+
 private:
 	Data* m_data;
 	Callbacks m_callbacks;

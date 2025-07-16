@@ -50,7 +50,7 @@ private:
 		};
 		Type type{};
 		size_t arg{}; // for dup and swap
-		std::optional<SSACFG::ValueId> pushValue{};
+		std::optional<Slot> pushValue{};
 		Cost cost() const
 		{
 			return 1;
@@ -71,7 +71,8 @@ private:
 				_stack.swap(arg);
 				break;
 			case Type::DUP:
-				_stack.dup(arg);
+				yulAssert(pushValue);
+				_stack.dup(*pushValue);
 				break;
 			}
 		}
@@ -90,6 +91,17 @@ private:
 			}
 		}
 
+		State(State const&) = default;
+		State& operator=(State const&) = default;
+
+		size_t numSlot(Slot const& _slot) const
+		{
+			auto it = histogram.find(_slot);
+			if (it == histogram.end())
+				return 0;
+			return it->second;
+		}
+
 		bool operator==(State const& _other) const
 		{
 			if (_other.stackData.size() != stackData.size())
@@ -101,7 +113,47 @@ private:
 				_other.stackData.rbegin(),
 				_other.stackData.rbegin() + static_cast<std::ptrdiff_t>(std::min(numHead, stackData.size()))
 			);
-			return headEqual && histogram == _other.histogram;
+			if (!headEqual)
+				return false;
+
+			auto it_a = histogram.begin();
+			auto it_b = _other.histogram.begin();
+
+			while (it_a != histogram.end() && it_b != _other.histogram.end())
+			{
+				if (it_a->first == it_b->first)
+				{
+					if (it_a->second != it_b->second)
+						return false;
+					++it_a;
+					++it_b;
+				} else if (it_a->first < it_b->first)
+				{
+					if (it_a->second > 0)
+						return false;
+					++it_a;
+				}
+				else
+				{
+					if (it_b->second > 0)
+						return false;
+					++it_b;
+				}
+			}
+
+			while (it_a != histogram.end()) {
+				if (it_a->second > 0)
+					return false;
+				++it_a;
+			}
+
+			while (it_b != _other.histogram.end()) {
+				if (it_b->second > 0)
+					return false;
+				++it_b;
+			}
+
+			return true;
 		}
 
 		bool operator<(State const& _other) const {
@@ -132,7 +184,6 @@ private:
 		typename Stack::Data stackData;
 		size_t numHead;
 		std::map<Slot, size_t> histogram;
-		size_t cumulativeCost = 0;
 	};
 
 	struct StatePtrComparator
@@ -192,7 +243,7 @@ private:
 	}
 
 
-	static std::vector<std::tuple<State, Operation>> generateSuccessors(State const& _state)
+	static std::vector<std::tuple<State, Operation>> generateSuccessors(State const& _state, State const& _targetState, Stack const& _stack)
 	{
 		std::vector<std::tuple<State, Operation>> result;
 		if (!_state.stackData.empty())
@@ -200,11 +251,11 @@ private:
 			// Generate SWAP operations
 			for (size_t i = 1; i <= std::min(_state.stackData.size() - 1, static_cast<size_t>(16)); ++i)
 			{
-				// todo double check
 				if (i < _state.stackData.size()) // Ensure enough elements for SWAPX
 				{
-					result.emplace_back(_state.stackData, Operation{Operation::Type::SWAP, i, std::nullopt});
-					Stack stack(std::get<0>(result.back()), /*todo args*/);
+					result.emplace_back(_state, Operation{Operation::Type::SWAP, i, std::nullopt});
+					auto& state = std::get<0>(result.back());
+					Stack stack(state.stackData, {}, _stack.canBeFreelyGeneratedFunction());
 					stack.swap(i);
 				}
 			}
@@ -215,19 +266,43 @@ private:
 				// todo only dup if its beneficial (?)
 				if (i <= _state.stackData.size())
 				{
-					result.emplace_back(_state.stackData, Operation{Operation::Type::DUP, i, std::nullopt});
-					Stack stack(std::get<0>(result.back()), /*todo args*/);
-					stack.dup(i);
+					auto const& slotToDup = _state.stackData[_state.stackData.size() - i];
+					if (_state.numSlot(slotToDup) < _targetState.numSlot(slotToDup))
+					{
+						result.emplace_back(_state, Operation{Operation::Type::DUP, i, slotToDup});
+						State& state = std::get<0>(result.back());
+						Stack stack(state.stackData, {}, _stack.canBeFreelyGeneratedFunction());
+						stack.dup(slotToDup);
+						state.histogram[state.stackData.back()] += 1;
+					}
 				}
 			}
 
-			// todo only if this doesn't destroy something that we can't get back
-			result.emplace_back(_state, Operation{Operation::Type::POP});
+			if (
+				_stack.canBeFreelyGenerated(_state.stackData.back()) ||
+				_state.numSlot(_state.stackData.back()) > 1 ||
+				_targetState.numSlot(_state.stackData.back()) == 0
+			)
+			{
+				result.emplace_back(_state, Operation{Operation::Type::POP});
+				State& state = std::get<0>(result.back());
+				state.histogram[state.stackData.back()] -= 1;
+				state.stackData.pop_back();
+			}
+
+			// todo dup deep slot if needed
 		}
-		// todo all pushes that we need in the target and that aren't there in the source (otherwise dup if we
-		//		already have one and can reach it)
-		// todo this doesn't need the u256 value but the SSACFG::ValueId
-		result.emplace_back(_state, Operation{Operation::Type::PUSH, 0, u256(0)});
+
+		for (auto const& slot: _targetState.stackData)
+		{
+			if (_stack.canBeFreelyGenerated(slot) && _state.numSlot(slot) < _targetState.numSlot(slot))
+			{
+				result.emplace_back(_state, Operation{Operation::Type::PUSH, 0, slot});
+				State& state = std::get<0>(result.back());
+				state.histogram[slot] += 1;
+				state.stackData.push_back(slot);
+			}
+		}
 		return result;
 	}
 
@@ -236,7 +311,8 @@ private:
 		std::vector<Slot> const& _target,
 		size_t const _numHead,
 		size_t const _maxIter,
-		size_t const _maxNodes
+		size_t const _maxNodes,
+		Stack const& _inputStack
 	)
 	{
 		yulAssert(_target.size() >= _numHead);
@@ -284,7 +360,7 @@ private:
 				return current.operations;
 			}
 
-			for (auto const& [nextState, operation]: generateSuccessors(*current.state))
+			for (auto const& [nextState, operation]: generateSuccessors(*current.state, targetState, _inputStack))
 			{
 				// Skip if already in closed set
 				if (closedSet.contains(&nextState))
@@ -292,7 +368,6 @@ private:
 
 				// Calculate costs
 				Cost newGCost = current.gCost + operation.cost();
-				// Cost constraintPenalty = ConstraintManager::calculateConstraintPenalty(nextState, _canBeFreelyGenerated);
 
 				// Check if we've found a better path to this state
 				if (
@@ -330,7 +405,7 @@ private:
 public:
 	static void shuffle(Stack& _stack, std::vector<Slot> const& _targetTail, std::vector<Slot> const& _targetHead)
 	{
-		auto const ops = shuffle(_stack.data(), _targetTail + _targetHead, _targetHead.size(), 1000, 1000);
+		auto const ops = shuffle(_stack.data(), _targetTail + _targetHead, _targetHead.size(), 10000, 10000, _stack);
 		for (auto const& op: ops)
 			op.apply(_stack);
 	}
