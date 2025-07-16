@@ -261,6 +261,8 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 	{
 		return std::holds_alternative<ssa::JunkSlot>(_target) || _source == _target;
 	};
+	if constexpr(debugOutput)
+		std::cout << "{ " << stackToString(stackToLayout(std::vector(liveOutWithoutOutputs.begin(), liveOutWithoutOutputs.end()), _blockId), m_cfg) << " } + " << stackToString(stackToLayout(requiredStackTop, _blockId), m_cfg) << ")\n";
 	BlockForwardAStarShuffler<Stack, slotIsCompatible>::shuffle(_stack, liveOutWithoutOutputs, requiredStackTop);
 
 	/*[&]
