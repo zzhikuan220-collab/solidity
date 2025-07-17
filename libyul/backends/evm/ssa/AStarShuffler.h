@@ -19,6 +19,7 @@
 #pragma once
 
 #include "libsolidity/parsing/Parser.h"
+#include "libyul/backends/evm/SSACFGStackShuffler.h"
 
 #include "libyul/optimiser/SimplificationRules.h"
 #include "range/v3/algorithm/equal.hpp"
@@ -26,6 +27,7 @@
 
 #include <libyul/backends/evm/SSACFGStack.h>
 
+#include <algorithm>
 #include <queue>
 #include <unordered_set>
 #include <utility>
@@ -156,6 +158,14 @@ private:
 			return true;
 		}
 
+		bool headContains(Slot const& _slot) const
+		{
+			for (size_t i = 0; i < std::min(stackData.size(), numHead); ++i)
+				if (stackData[stackData.size() - i - 1] == _slot)
+					return true;
+			return false;
+		}
+
 		bool operator<(State const& _other) const {
 			// 1. Compare stack sizes first
 			if (stackData.size() != _other.stackData.size())
@@ -250,13 +260,15 @@ private:
 		}
 	};
 
-	static Cost heuristicCost(std::map<Slot, size_t> const& _from, std::map<Slot, size_t> const& _to)
+	static Cost heuristicCost(State const& _from, State const& _to)
 	{
 		Cost cost{};
-		auto it_a = _from.begin();
-		auto it_b = _to.begin();
+		
+		// 1. Histogram difference (count constraints)
+		auto it_a = _from.histogram.begin();
+		auto it_b = _to.histogram.begin();
 
-		while (it_a != _from.end() && it_b != _to.end()) {
+		while (it_a != _from.histogram.end() && it_b != _to.histogram.end()) {
 			if (it_a->first == it_b->first) {
 				cost += static_cast<Cost>(std::abs(static_cast<std::ptrdiff_t>(it_a->second) - static_cast<std::ptrdiff_t>(it_b->second)));
 				++it_a;
@@ -270,15 +282,33 @@ private:
 			}
 		}
 
-		while (it_a != _from.end()) {
+		while (it_a != _from.histogram.end())
+		{
 			cost += it_a->second;
 			++it_a;
 		}
 
-		while (it_b != _to.end()) {
+		while (it_b != _to.histogram.end())
+		{
 			cost += it_b->second;
 			++it_b;
 		}
+
+		// todo this may be not admissible, check
+		// 2. Head accessibility penalty
+		for (size_t i = 0; i < _to.numHead; ++i) {
+			auto targetSlot = _to.stackData[_to.stackData.size() - 1 - i];
+			
+			// Find the first occurrence of this slot in the current stack
+			auto it = std::find(_from.stackData.rbegin(), _from.stackData.rend(), targetSlot);
+			if (it != _from.stackData.rend()) {
+				size_t depth = static_cast<size_t>(std::distance(_from.stackData.rbegin(), it));
+				if (depth >= 16) {
+					cost += 1; // Need at least 1 operation to make it accessible
+				}
+			}
+		}
+		
 		return cost;
 	}
 
@@ -288,34 +318,52 @@ private:
 		std::vector<std::tuple<State, Operation>> result;
 		if (!_state.stackData.empty())
 		{
-			// Generate SWAP operations
+			// Generate SWAP operations - only for bringing needed elements into accessible range
 			for (size_t i = 1; i <= std::min(_state.stackData.size() - 1, static_cast<size_t>(16)); ++i)
 			{
 				if (i < _state.stackData.size()) // Ensure enough elements for SWAPX
 				{
-					result.emplace_back(_state, Operation{Operation::Type::SWAP, i, std::nullopt});
-					auto& state = std::get<0>(result.back());
-					Stack stack(state.stackData, {}, _stack.canBeFreelyGeneratedFunction());
-					stack.swap(i);
+					auto const& elementToSwap = _state.stackData[_state.stackData.size() - i - 1];
+					
+					// Only generate SWAP if this element is needed in the head
+					if (_targetState.headContains(elementToSwap))
+					{
+						result.emplace_back(_state, Operation{Operation::Type::SWAP, i, std::nullopt});
+						auto& state = std::get<0>(result.back());
+						Stack stack(state.stackData, {}, _stack.canBeFreelyGeneratedFunction());
+						stack.swap(i);
+					}
 				}
 			}
 
-			// Generate DUP operations
+			// Generate DUP operations - prioritize deepest accessible elements
+			std::vector<std::pair<size_t, Slot>> candidates;
 			for (size_t i = 1; i <= std::min(_state.stackData.size(), static_cast<size_t>(16)); ++i)
 			{
-				// todo only dup if its beneficial (?)
 				if (i <= _state.stackData.size())
 				{
 					auto const& slotToDup = _state.stackData[_state.stackData.size() - i];
 					if (_state.numSlot(slotToDup) < _targetState.numSlot(slotToDup))
 					{
-						result.emplace_back(_state, Operation{Operation::Type::DUP, i, slotToDup});
-						State& state = std::get<0>(result.back());
-						Stack stack(state.stackData, {}, _stack.canBeFreelyGeneratedFunction());
-						stack.dup(slotToDup);
-						state.histogram[state.stackData.back()] += 1;
+						candidates.emplace_back(i, slotToDup);
 					}
 				}
+			}
+			
+			// Sort by depth (deepest first) and only generate top 3 DUP operations
+			std::sort(candidates.begin(), candidates.end(), [](auto const& a, auto const& b) {
+				return a.first > b.first; // Deeper elements first
+			});
+			
+			size_t const maxDups = std::min(candidates.size(), static_cast<size_t>(2));
+			for (size_t j = 0; j < maxDups; ++j)
+			{
+				auto const& [depth, slotToDup] = candidates[j];
+				result.emplace_back(_state, Operation{Operation::Type::DUP, depth, slotToDup});
+				State& state = std::get<0>(result.back());
+				Stack stack(state.stackData, {}, _stack.canBeFreelyGeneratedFunction());
+				stack.dup(slotToDup);
+				state.histogram[state.stackData.back()] += 1;
 			}
 
 			if (
@@ -371,7 +419,7 @@ private:
 		std::map<State const*, Cost, StatePtrComparator> bestCosts;
 
 		// Add start node
-		Cost startHeuristic = heuristicCost(start.histogram, targetState.histogram);
+		Cost startHeuristic = heuristicCost(start, targetState);
 		openSet.push(Node {&start, 0, startHeuristic, {}});
 		bestCosts[&start] = {};
 
@@ -419,7 +467,7 @@ private:
 				}
 
 				// Calculate heuristic cost
-				Cost hCost = heuristicCost(nextState.histogram, targetState.histogram);
+				Cost hCost = heuristicCost(nextState, targetState);
 
 				// Create new path
 				std::vector<Operation> newPath = current.operations;
@@ -445,6 +493,25 @@ private:
 public:
 	static void shuffle(Stack& _stack, std::vector<Slot> const& _targetTail, std::vector<Slot> const& _targetHead)
 	{
+		// Check for common pattern: tail histogram identical, need to build head via DUPs
+		if (_stack.data().size() >= _targetTail.size())
+		{
+			// Compare histograms of current stack and target tail
+			std::map<Slot, size_t> currentHistogram, targetHistogram;
+
+			for (size_t i = 0; i < _targetTail.size(); ++i)
+				++currentHistogram[_stack.data()[i]];
+			for (auto const& slot : _targetTail)
+				++targetHistogram[slot];
+
+			if (currentHistogram == targetHistogram)
+			{
+				DanielShuffler<Stack, SlotIsCompatible>::shuffle(_stack, {}, std::vector(_stack.data().begin(), std::next(_stack.data().begin(), static_cast<std::ptrdiff_t>(_targetTail.size()))) + _targetHead);
+				return;
+			}
+		}
+
+		// Fall back to A* for complex cases
 		auto const ops = shuffle(_stack.data(), _targetTail + _targetHead, _targetHead.size(), 1000000, 1000000, _stack);
 		for (auto const& op: ops)
 			op.apply(_stack);

@@ -261,9 +261,29 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 	{
 		return std::holds_alternative<ssa::JunkSlot>(_target) || _source == _target;
 	};
+	auto const fun = [&](Slot const& _slot) -> bool
+	{
+		if (auto const* valueId = std::get_if<SSACFG::ValueId>(&_slot))
+			return liveOutWithoutOutputsSet.contains(*valueId);
+		return false;
+	};
+	auto tail = _stack.data();
+	std::erase_if(tail, fun);
+	for (auto const& v: liveOutWithoutOutputs)
+	{
+		if (ranges::find(tail, v) == ranges::end(tail))
+			tail.push_back(v);
+	}
+	/*auto const v = _stack.data() | ranges::views::transform([&](auto const& _slot) -> Slot
+	{
+		if (auto const* valueId = std::get_if<SSACFG::ValueId>(&_slot))
+			return liveOutWithoutOutputsSet.contains(*valueId) ? _slot : ssa::JunkSlot{};
+		return _slot;
+	}) | ranges::to<std::vector<Slot>>;*/
+	// tail = liveOutWithoutOutputs;
 	if constexpr(debugOutput)
-		std::cout << "{ " << stackToString(stackToLayout(std::vector(liveOutWithoutOutputs.begin(), liveOutWithoutOutputs.end()), _blockId), m_cfg) << " } + " << stackToString(stackToLayout(requiredStackTop, _blockId), m_cfg) << ")\n";
-	BlockForwardAStarShuffler<Stack, slotIsCompatible>::shuffle(_stack, liveOutWithoutOutputs, requiredStackTop);
+		std::cout << "{ " << stackToString(stackToLayout(tail, _blockId), m_cfg) << " } + " << stackToString(stackToLayout(requiredStackTop, _blockId), m_cfg) << ")\n";
+	BlockForwardAStarShuffler<Stack, slotIsCompatible>::shuffle(_stack, tail, requiredStackTop);
 
 	/*[&]
 	{
