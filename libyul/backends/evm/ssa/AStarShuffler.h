@@ -51,7 +51,7 @@ private:
 			PUSH, POP, SWAP, DUP
 		};
 		Type type{};
-		size_t arg{}; // for dup and swap
+		size_t arg{}; // for swap
 		std::optional<Slot> pushValue{};
 		Cost cost() const
 		{
@@ -296,7 +296,7 @@ private:
 
 		// todo this may be not admissible, check
 		// 2. Head accessibility penalty
-		for (size_t i = 0; i < _to.numHead; ++i) {
+		/*for (size_t i = 0; i < _to.numHead; ++i) {
 			auto targetSlot = _to.stackData[_to.stackData.size() - 1 - i];
 			
 			// Find the first occurrence of this slot in the current stack
@@ -307,7 +307,7 @@ private:
 					cost += 1; // Need at least 1 operation to make it accessible
 				}
 			}
-		}
+		}*/
 		
 		return cost;
 	}
@@ -324,9 +324,9 @@ private:
 				if (i < _state.stackData.size()) // Ensure enough elements for SWAPX
 				{
 					auto const& elementToSwap = _state.stackData[_state.stackData.size() - i - 1];
-					
+
 					// Only generate SWAP if this element is needed in the head
-					if (_targetState.headContains(elementToSwap))
+					if (_targetState.headContains(elementToSwap) || (!_targetState.headContains(elementToSwap) && _state.headContains(elementToSwap)))
 					{
 						result.emplace_back(_state, Operation{Operation::Type::SWAP, i, std::nullopt});
 						auto& state = std::get<0>(result.back());
@@ -337,33 +337,35 @@ private:
 			}
 
 			// Generate DUP operations - prioritize deepest accessible elements
-			std::vector<std::pair<size_t, Slot>> candidates;
-			for (size_t i = 1; i <= std::min(_state.stackData.size(), static_cast<size_t>(16)); ++i)
 			{
-				if (i <= _state.stackData.size())
+				std::vector<std::pair<size_t, Slot>> candidates;
+				for (size_t i = 1; i <= std::min(_state.stackData.size(), static_cast<size_t>(16)); ++i)
 				{
-					auto const& slotToDup = _state.stackData[_state.stackData.size() - i];
-					if (_state.numSlot(slotToDup) < _targetState.numSlot(slotToDup))
+					if (i <= _state.stackData.size())
 					{
-						candidates.emplace_back(i, slotToDup);
+						auto const& slotToDup = _state.stackData[_state.stackData.size() - i];
+						if (_state.numSlot(slotToDup) < _targetState.numSlot(slotToDup))
+						{
+							candidates.emplace_back(i, slotToDup);
+						}
 					}
 				}
-			}
-			
-			// Sort by depth (deepest first) and only generate top 3 DUP operations
-			std::sort(candidates.begin(), candidates.end(), [](auto const& a, auto const& b) {
-				return a.first > b.first; // Deeper elements first
-			});
-			
-			size_t const maxDups = std::min(candidates.size(), static_cast<size_t>(2));
-			for (size_t j = 0; j < maxDups; ++j)
-			{
-				auto const& [depth, slotToDup] = candidates[j];
-				result.emplace_back(_state, Operation{Operation::Type::DUP, depth, slotToDup});
-				State& state = std::get<0>(result.back());
-				Stack stack(state.stackData, {}, _stack.canBeFreelyGeneratedFunction());
-				stack.dup(slotToDup);
-				state.histogram[state.stackData.back()] += 1;
+
+				// Sort by depth (deepest first) and only generate top 3 DUP operations
+				std::sort(candidates.begin(), candidates.end(), [](auto const& a, auto const& b) {
+					return a.first > b.first; // Deeper elements first
+				});
+
+				size_t const maxDups = std::min(candidates.size(), static_cast<size_t>(2));
+				for (size_t j = 0; j < maxDups; ++j)
+				{
+					auto const& [depth, slotToDup] = candidates[j];
+					result.emplace_back(_state, Operation{Operation::Type::DUP, depth, slotToDup});
+					State& state = std::get<0>(result.back());
+					Stack stack(state.stackData, {}, _stack.canBeFreelyGeneratedFunction());
+					stack.dup(slotToDup);
+					state.histogram[state.stackData.back()] += 1;
+				}
 			}
 
 			if (

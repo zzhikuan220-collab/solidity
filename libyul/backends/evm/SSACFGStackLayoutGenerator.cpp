@@ -264,7 +264,7 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 	auto const fun = [&](Slot const& _slot) -> bool
 	{
 		if (auto const* valueId = std::get_if<SSACFG::ValueId>(&_slot))
-			return liveOutWithoutOutputsSet.contains(*valueId);
+			return !liveOutWithoutOutputsSet.contains(*valueId);
 		return false;
 	};
 	auto tail = _stack.data();
