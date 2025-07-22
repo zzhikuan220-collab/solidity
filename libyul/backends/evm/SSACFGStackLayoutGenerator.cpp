@@ -283,7 +283,20 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 	// tail = liveOutWithoutOutputs;
 	if constexpr(debugOutput)
 		std::cout << "{ " << stackToString(stackToLayout(tail, _blockId), m_cfg) << " } + " << stackToString(stackToLayout(requiredStackTop, _blockId), m_cfg) << ")\n";
-	BlockForwardAStarShuffler<Stack, slotIsCompatible>::shuffle(_stack, tail, requiredStackTop);
+	if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_blockId))
+	{
+		BlockForwardAStarShuffler<Stack, slotIsCompatible>::shuffle(_stack, tail, requiredStackTop);
+	}
+	else
+	{
+		for (auto& slot: tail)
+			if (auto const* valueId = std::get_if<SSACFG::ValueId>(&slot))
+				if (!liveOutWithoutOutputsSet.contains(*valueId))
+					slot = ssa::JunkSlot{};
+		for (auto const& slot: requiredStackTop)
+			yulAssert(!std::holds_alternative<ssa::JunkSlot>(slot));
+		BlockForwardAStarShuffler<Stack, slotIsCompatible>::shuffle(_stack, tail, requiredStackTop);
+	}
 
 	/*[&]
 	{

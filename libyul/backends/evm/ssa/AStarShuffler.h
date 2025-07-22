@@ -48,14 +48,14 @@ private:
 	{
 		enum class Type
 		{
-			PUSH, POP, SWAP, DUP
+			PUSH, POP, SWAP, DUP, JUNK
 		};
 		Type type{};
 		size_t arg{}; // for swap
 		std::optional<Slot> pushValue{};
 		Cost cost() const
 		{
-			return 1;
+			return type == Type::JUNK ? 0 : 1;
 		}
 
 		void apply(Stack& _stack) const
@@ -75,6 +75,9 @@ private:
 			case Type::DUP:
 				yulAssert(pushValue);
 				_stack.dup(*pushValue);
+				break;
+			case Type::JUNK:
+				_stack.declareJunk(arg);
 				break;
 			}
 		}
@@ -380,6 +383,20 @@ private:
 				state.stackData.pop_back();
 			}
 
+			if (_targetState.numSlot(JunkSlot{}) > _state.numSlot(JunkSlot{}))
+				for (size_t i = 0; i < _state.stackData.size(); ++i)
+				{
+					// if we have too much of it, we may declare it junk
+					if (_targetState.numSlot(_state.stackData[i]) < _state.numSlot(_state.stackData[i]))
+					{
+						result.emplace_back(_state, Operation{Operation::Type::JUNK, _state.stackData.size() - i - 1});
+						State& state = std::get<0>(result.back());
+						Stack stack(state.stackData, {}, _stack.canBeFreelyGeneratedFunction());
+						state.histogram[_state.stackData[i]] -= 1;
+						std::get<1>(result.back()).apply(stack);
+						state.histogram[JunkSlot{}] += 1;
+					}
+				}
 			// todo dup deep slot if needed
 		}
 
