@@ -22,7 +22,6 @@
 #include <libyul/backends/evm/SSACFGTopologicalSort.h>
 #include <libyul/backends/evm/SSAControlFlowGraph.h>
 
-#include <cstddef>
 #include <set>
 #include <vector>
 
@@ -40,14 +39,13 @@ public:
 
 	LivenessData const& liveIn(SSACFG::BlockId const _blockId) const { return m_liveIns[_blockId.value]; }
 	LivenessData const& liveOut(SSACFG::BlockId const _blockId) const { return m_liveOuts[_blockId.value]; }
-	LivenessData const& used(SSACFG::BlockId const _blockId) const { return m_used[_blockId.value]; }
 	std::vector<LivenessData> const& operationsLiveOut(SSACFG::BlockId _blockId) const { return m_operationLiveOuts[_blockId.value]; }
 	ForwardSSACFGTopologicalSort const& topologicalSort() const { return m_topologicalSort; }
 	SSACFG const& cfg() const { return m_cfg; }
 
 private:
 	void runDagDfs();
-	void runLoopTreeDfs(size_t _loopHeader);
+	void runLoopTreeDfs(std::size_t _loopHeader);
 	void fillOperationsLiveOut();
 	std::set<SSACFG::ValueId> blockExitValues(SSACFG::BlockId const& _blockId) const;
 
@@ -56,7 +54,6 @@ private:
 	SSACFGLoopNestingForest m_loopNestingForest;
 	std::vector<LivenessData> m_liveIns;
 	std::vector<LivenessData> m_liveOuts;
-	std::vector<LivenessData> m_used;
 	std::vector<std::vector<LivenessData>> m_operationLiveOuts;
 };
 

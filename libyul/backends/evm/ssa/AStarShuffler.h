@@ -384,10 +384,14 @@ private:
 			}
 
 			if (_targetState.numSlot(JunkSlot{}) > _state.numSlot(JunkSlot{}))
+			{
+				size_t n = 0;
 				for (size_t i = 0; i < _state.stackData.size(); ++i)
 				{
+					if (n == 2)
+						break;
 					// if we have too much of it, we may declare it junk
-					if (_targetState.numSlot(_state.stackData[i]) < _state.numSlot(_state.stackData[i]))
+					if (std::holds_alternative<SSACFG::ValueId>(_state.stackData[i]) && _targetState.numSlot(_state.stackData[i]) < _state.numSlot(_state.stackData[i]))
 					{
 						result.emplace_back(_state, Operation{Operation::Type::JUNK, _state.stackData.size() - i - 1});
 						State& state = std::get<0>(result.back());
@@ -395,8 +399,10 @@ private:
 						state.histogram[_state.stackData[i]] -= 1;
 						std::get<1>(result.back()).apply(stack);
 						state.histogram[JunkSlot{}] += 1;
+						++n;
 					}
 				}
+			}
 			// todo dup deep slot if needed
 		}
 
@@ -531,7 +537,7 @@ public:
 		}
 
 		// Fall back to A* for complex cases
-		auto const ops = shuffle(_stack.data(), _targetTail + _targetHead, _targetHead.size(), 1000000, 1000000, _stack);
+		auto const ops = shuffle(_stack.data(), _targetTail + _targetHead, _targetHead.size(), 100000000, 100000000, _stack);
 		for (auto const& op: ops)
 			op.apply(_stack);
 	}

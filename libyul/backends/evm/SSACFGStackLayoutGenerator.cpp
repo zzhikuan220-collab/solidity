@@ -51,7 +51,7 @@ namespace
 #if !defined(NDEBUG)
 bool constexpr debugOutput = true;
 #else
-bool constexpr debugOutput = false;
+bool constexpr debugOutput = true;
 #endif
 
 [[maybe_unused]] std::vector<SSACFGStackLayoutGenerator::Slot> pileOfJunk(size_t const _size)
@@ -268,12 +268,7 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 		return false;
 	};
 	auto tail = _stack.data();
-	std::erase_if(tail, fun);
-	for (auto const& v: liveOutWithoutOutputs)
-	{
-		if (ranges::find(tail, v) == ranges::end(tail))
-			tail.push_back(v);
-	}
+
 	/*auto const v = _stack.data() | ranges::views::transform([&](auto const& _slot) -> Slot
 	{
 		if (auto const* valueId = std::get_if<SSACFG::ValueId>(&_slot))
@@ -285,14 +280,14 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 		std::cout << "{ " << stackToString(stackToLayout(tail, _blockId), m_cfg) << " } + " << stackToString(stackToLayout(requiredStackTop, _blockId), m_cfg) << ")\n";
 	if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_blockId))
 	{
+		std::erase_if(tail, fun);
 		BlockForwardAStarShuffler<Stack, slotIsCompatible>::shuffle(_stack, tail, requiredStackTop);
 	}
 	else
 	{
 		for (auto& slot: tail)
-			if (auto const* valueId = std::get_if<SSACFG::ValueId>(&slot))
-				if (!liveOutWithoutOutputsSet.contains(*valueId))
-					slot = ssa::JunkSlot{};
+			if (fun(slot))
+				slot = ssa::JunkSlot{};
 		for (auto const& slot: requiredStackTop)
 			yulAssert(!std::holds_alternative<ssa::JunkSlot>(slot));
 		BlockForwardAStarShuffler<Stack, slotIsCompatible>::shuffle(_stack, tail, requiredStackTop);

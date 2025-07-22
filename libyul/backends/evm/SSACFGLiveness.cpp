@@ -67,7 +67,6 @@ SSACFGLiveness::SSACFGLiveness(SSACFG const& _cfg):
 	m_loopNestingForest(m_topologicalSort),
 	m_liveIns(_cfg.numBlocks()),
 	m_liveOuts(_cfg.numBlocks()),
-	m_used(_cfg.numBlocks()),
 	m_operationLiveOuts(_cfg.numBlocks())
 {
 	runDagDfs();
@@ -168,7 +167,6 @@ void SSACFGLiveness::fillOperationsLiveOut()
 	for (SSACFG::BlockId blockId{0}; blockId.value < m_cfg.numBlocks(); ++blockId.value)
 	{
 		auto const& operations = m_cfg.block(blockId).operations;
-		std::set<SSACFG::ValueId> used;
 		auto& liveOuts = m_operationLiveOuts[blockId.value];
 		liveOuts.resize(operations.size());
 		if (!operations.empty())
@@ -181,10 +179,8 @@ void SSACFGLiveness::fillOperationsLiveOut()
 				auto const operationInputs = op.inputs | ranges::views::filter(literalsFilter(m_cfg)) | ranges::to<std::vector>;
 				live -= op.outputs | ranges::views::filter(literalsFilter(m_cfg)) | ranges::to<std::vector>;
 				live += operationInputs;
-				used += operationInputs;
 				++rit;
 			}
 		}
-		ranges::set_intersection(used, m_liveIns[blockId.value], std::inserter(m_used[blockId.value], m_used[blockId.value].end()));
 	}
 }
