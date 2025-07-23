@@ -144,9 +144,11 @@ Json YulControlFlowGraphExporter::toJson(SSACFG const& _cfg, SSACFG::BlockId _bl
 	{
 		Json livenessJson = Json::object();
 		livenessJson["in"] = _liveness->liveIn(_blockId)
+			| ranges::views::transform([](auto const& histogramEntry) { return SSACFG::ValueId{histogramEntry.first}; })
 			| ranges::views::transform(valueToString)
 			| ranges::to<Json::array_t>();
 		livenessJson["out"] = _liveness->liveOut(_blockId)
+			| ranges::views::transform([](auto const& histogramEntry) { return SSACFG::ValueId{histogramEntry.first}; })
 			| ranges::views::transform(valueToString)
 			| ranges::to<Json::array_t>();
 		blockJson["liveness"] = livenessJson;

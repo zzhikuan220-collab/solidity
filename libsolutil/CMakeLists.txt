@@ -30,7 +30,6 @@ set(sources
 	Profiler.h
 	Result.h
 	SetOnce.h
-	StackTooDeepString.h
 	StringUtils.cpp
 	StringUtils.h
 	SwarmHash.cpp

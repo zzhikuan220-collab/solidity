@@ -65,8 +65,9 @@ public:
 	};
 	struct ValueId
 	{
-		size_t value = std::numeric_limits<size_t>::max();
-		bool hasValue() const { return value != std::numeric_limits<size_t>::max(); }
+		using ValueType = size_t;
+		ValueType value = std::numeric_limits<ValueType>::max();
+		bool hasValue() const { return value != std::numeric_limits<ValueType>::max(); }
 		auto operator<=>(ValueId const&) const = default;
 	};
 
@@ -206,7 +207,11 @@ public:
 	}
 	ValueInfo const& valueInfo(ValueId const _var) const
 	{
-		return m_valueInfos.at(_var.value);
+		return valueInfo(_var.value);
+	}
+	ValueInfo const& valueInfo(ValueId::ValueType const _var) const
+	{
+		return m_valueInfos.at(_var);
 	}
 	ValueId newPhi(BlockId const _definingBlock)
 	{

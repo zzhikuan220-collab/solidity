@@ -16,6 +16,10 @@
 */
 // SPDX-License-Identifier: GPL-3.0
 
+#include "range/v3/algorithm/find.hpp"
+#include "range/v3/view/enumerate.hpp"
+
+
 #include <libyul/backends/evm/SSACFGLiveness.h>
 
 #include <libsolutil/Visitor.h>
@@ -33,33 +37,130 @@ constexpr auto literalsFilter(SSACFG const& _cfg)
 {
 	return [&_cfg](SSACFG::ValueId const& _valueId) -> bool
 	{
-		return !std::holds_alternative<SSACFG::LiteralValue>(_cfg.valueInfo(_valueId));;
+		return !std::holds_alternative<SSACFG::LiteralValue>(_cfg.valueInfo(_valueId));
+	};
+}
+constexpr auto unreachableFilter(SSACFG const& _cfg)
+{
+	return [&_cfg](SSACFG::ValueId const& _valueId) -> bool
+	{
+		return !std::holds_alternative<SSACFG::UnreachableValue>(_cfg.valueInfo(_valueId));
 	};
 }
 }
 
-std::set<SSACFG::ValueId> SSACFGLiveness::blockExitValues(SSACFG::BlockId const& _blockId) const
+bool SSACFGLiveness::LivenessData::contains(SSACFG::ValueId const& _valueId) const
 {
-	std::set<SSACFG::ValueId> result;
-	util::GenericVisitor exitVisitor {
+	return ranges::find_if(liveCounts, [&](auto const& entry) { return entry.first == _valueId; }) != liveCounts.end();
+}
+
+SSACFGLiveness::LivenessData::Count SSACFGLiveness::LivenessData::count(SSACFG::ValueId const& _valueId) const
+{
+	auto it = ranges::find_if(liveCounts, [&](auto const& entry) { return entry.first == _valueId; });
+	if (it != liveCounts.end())
+		return it->second;
+	return 0;
+}
+
+SSACFGLiveness::LivenessData::LiveCounts::const_iterator SSACFGLiveness::LivenessData::begin() const
+{
+	return liveCounts.begin();
+}
+
+SSACFGLiveness::LivenessData::LiveCounts::const_iterator SSACFGLiveness::LivenessData::end() const
+{
+	return liveCounts.end();
+}
+
+SSACFGLiveness::LivenessData::LiveCounts::size_type SSACFGLiveness::LivenessData::size() const
+{
+	return liveCounts.size();
+}
+
+bool SSACFGLiveness::LivenessData::empty() const { return liveCounts.empty(); }
+void SSACFGLiveness::LivenessData::insert(Value const& _value, Count _count)
+{
+	if (_count == 0)
+		return;
+
+	auto it = findEntry(_value);
+	if (it != liveCounts.end())
+		it->second += _count;
+	else
+		liveCounts.emplace_back(_value, _count);
+}
+SSACFGLiveness::LivenessData& SSACFGLiveness::LivenessData::maxUnion(LivenessData const& _other)
+{
+	for (auto const& [value, count]: _other.liveCounts)
+	{
+		auto it = findEntry(value);
+		if (it != liveCounts.end())
+			it->second = std::max(it->second, count);
+		else
+			liveCounts.emplace_back(value, count);
+	}
+	return *this;
+}
+SSACFGLiveness::LivenessData& SSACFGLiveness::LivenessData::operator+=(LivenessData const& _other)
+{
+	for (auto const& entry : _other.liveCounts)
+		insert(entry.first, entry.second);
+	return *this;
+}
+
+SSACFGLiveness::LivenessData& SSACFGLiveness::LivenessData::operator-=(LivenessData const& _other)
+{
+	std::erase_if(liveCounts, [&](auto const& entry) { return _other.contains(entry.first); });
+	return *this;
+}
+void SSACFGLiveness::LivenessData::erase(Value const& _value)
+{
+	auto it = findEntry(_value);
+	if (it != liveCounts.end())
+		liveCounts.erase(it);
+}
+void SSACFGLiveness::LivenessData::remove(Value const& _value, Count _count)
+{
+	if (_count == 0)
+		return;
+
+	auto it = findEntry(_value);
+	if (it != liveCounts.end())
+	{
+		if (it->second <= _count)
+			liveCounts.erase(it);
+		else
+			it->second -= _count;
+	}
+}
+
+SSACFGLiveness::LivenessData SSACFGLiveness::blockExitValues(SSACFG::BlockId const& _blockId) const
+{
+	LivenessData result;
+	util::GenericVisitor exitVisitor{
 		[](SSACFG::BasicBlock::MainExit const&) {},
-		[&](SSACFG::BasicBlock::FunctionReturn const& _functionReturn) {
-			result += _functionReturn.returnValues | ranges::views::filter(literalsFilter(m_cfg));
+		[&](SSACFG::BasicBlock::FunctionReturn const& _functionReturn)
+		{
+			for (auto const& valueId: _functionReturn.returnValues | ranges::views::filter(literalsFilter(m_cfg)))
+				result.insert(valueId);
 		},
-		[&](SSACFG::BasicBlock::JumpTable const& _jt) {
+		[&](SSACFG::BasicBlock::JumpTable const& _jt)
+		{
 			if (literalsFilter(m_cfg)(_jt.value))
-				result.emplace(_jt.value);
+				result.insert(_jt.value);
 		},
 		[](SSACFG::BasicBlock::Jump const&) {},
-		[&](SSACFG::BasicBlock::ConditionalJump const& _conditionalJump) {
+		[&](SSACFG::BasicBlock::ConditionalJump const& _conditionalJump)
+		{
 			if (literalsFilter(m_cfg)(_conditionalJump.condition))
-				result.emplace(_conditionalJump.condition);
+				result.insert(_conditionalJump.condition);
 		},
-		[](SSACFG::BasicBlock::Terminated const&) {}
-	};
+		[](SSACFG::BasicBlock::Terminated const&) {}};
 	std::visit(exitVisitor, m_cfg.block(_blockId).exit);
 	return result;
 }
+
+
 
 SSACFGLiveness::SSACFGLiveness(SSACFG const& _cfg):
 	m_cfg(_cfg),
@@ -86,7 +187,7 @@ void SSACFGLiveness::runDagDfs()
 		auto const& block = m_cfg.block(blockId);
 
 		// live <- PhiUses(B)
-		std::set<SSACFG::ValueId> live{};
+		LivenessData live{};
 		block.forEachExit(
 			[&](SSACFG::BlockId const& _successor)
 			{
@@ -106,15 +207,21 @@ void SSACFGLiveness::runDagDfs()
 		block.forEachExit(
 			[&](SSACFG::BlockId const& _successor) {
 				if (!m_topologicalSort.backEdge(blockId, _successor))
-					live += m_liveIns[_successor.value] - m_cfg.block(_successor).phis;
+				{
+					// LiveIn(S) - PhiDefs(S)
+					auto liveInWithoutPhiDefs = m_liveIns[_successor.value];
+					for (auto const& phiId: m_cfg.block(_successor).phis)
+						liveInWithoutPhiDefs.erase(phiId);
+					live += liveInWithoutPhiDefs;
+				}
 			});
 
 		if (std::holds_alternative<SSACFG::BasicBlock::FunctionReturn>(block.exit))
-			live += std::get<SSACFG::BasicBlock::FunctionReturn>(block.exit).returnValues
-					| ranges::views::filter(literalsFilter(m_cfg));
+			for (auto const& returnValue: std::get<SSACFG::BasicBlock::FunctionReturn>(block.exit).returnValues | ranges::views::filter(literalsFilter(m_cfg)))
+				live.insert(returnValue);
 
 		// clean out unreachables
-		live = live | ranges::views::filter([&](auto const& valueId) { return !std::holds_alternative<SSACFG::UnreachableValue>(m_cfg.valueInfo(valueId)); }) | ranges::to<std::set>;
+		live.eraseIf([&](auto const& _entry) { return !unreachableFilter(m_cfg)(_entry.first); });
 
 		// LiveOut(B) <- live
 		m_liveOuts[blockId.value] = live;
@@ -127,14 +234,16 @@ void SSACFGLiveness::runDagDfs()
 			for (auto const& op: block.operations | ranges::views::reverse)
 			{
 				// remove variables defined at p from live
-				live -= op.outputs | ranges::views::filter(literalsFilter(m_cfg)) | ranges::to<std::vector>;
+				live.eraseAll(op.outputs | ranges::views::filter(literalsFilter(m_cfg)) | ranges::to<std::vector>);
 				// add uses at p to live
-				live += op.inputs | ranges::views::filter(literalsFilter(m_cfg)) | ranges::to<std::vector>;
+				live.insertAll(op.inputs | ranges::views::filter(literalsFilter(m_cfg)) | ranges::to<std::vector>);
 			}
 		}
 
 		// livein(b) <- live \cup PhiDefs(B)
-		m_liveIns[blockId.value] = live + block.phis;
+		for (auto const& phi: block.phis)
+			live.insert(phi);
+		m_liveIns[blockId.value] = live;
 	}
 }
 
@@ -146,16 +255,18 @@ void SSACFGLiveness::runLoopTreeDfs(size_t const _loopHeader)
 		// the loop header block id
 		auto const& block = m_cfg.block(SSACFG::BlockId{_loopHeader});
 		// LiveLoop <- LiveIn(B_N) - PhiDefs(B_N)
-		auto liveLoop = m_liveIns[_loopHeader] - block.phis;
+		auto liveLoop = m_liveIns[_loopHeader];
+		for (auto const& phi: block.phis)
+			liveLoop.erase(phi);
 		// must be live out of header if live in of children
-		m_liveOuts[_loopHeader] += liveLoop;
+		m_liveOuts[_loopHeader].maxUnion(liveLoop);
 		// for each blockId \in children(loopHeader)
 		for (size_t blockIdValue = 0; blockIdValue < m_cfg.numBlocks(); ++blockIdValue)
 			if (m_loopNestingForest.loopParents()[blockIdValue] == _loopHeader)
 			{
 				// propagate loop liveness information down to the loop header's children
-				m_liveIns[blockIdValue] += liveLoop;
-				m_liveOuts[blockIdValue] += liveLoop;
+				m_liveIns[blockIdValue].maxUnion(liveLoop);
+				m_liveOuts[blockIdValue].maxUnion(liveLoop);
 
 				runLoopTreeDfs(blockIdValue);
 			}
@@ -171,14 +282,17 @@ void SSACFGLiveness::fillOperationsLiveOut()
 		liveOuts.resize(operations.size());
 		if (!operations.empty())
 		{
-			auto live = m_liveOuts[blockId.value] + blockExitValues(blockId);
+			auto live = m_liveOuts[blockId.value];
+			live += blockExitValues(blockId);
 			auto rit = liveOuts.rbegin();
 			for (auto const& op: operations | ranges::views::reverse)
 			{
 				*rit = live;
 				auto const operationInputs = op.inputs | ranges::views::filter(literalsFilter(m_cfg)) | ranges::to<std::vector>;
-				live -= op.outputs | ranges::views::filter(literalsFilter(m_cfg)) | ranges::to<std::vector>;
-				live += operationInputs;
+				for (auto const& output: op.outputs | ranges::views::filter(literalsFilter(m_cfg)))
+					live.remove(output);
+				for (auto const input: operationInputs)
+					live.insert(input);
 				++rit;
 			}
 		}

@@ -21,12 +21,12 @@
 // ----
 // digraph SSACFG {
 // nodesep=0.7;
-// graph[fontname="DejaVu Sans"]
+// graph[rankdir=LR, fontname="DejaVu Sans"]
 // node[shape=box,fontname="DejaVu Sans"];
 //
 // Entry0 [label="Entry"];
 // Entry0 -> Block0_0;
-// Block0_0 [label="\
+// Block0_0 [fillcolor="#FF746C", style=filled, label="\
 // Block 0; (0, max 0)\nLiveIn: \l\
 // LiveOut: \l\nv0, v1 := i()\l\
 // h(v0)\l\
@@ -37,8 +37,8 @@
 //  r := f(v0, v1)"];
 // FunctionEntry_f_0 -> Block1_0;
 // Block1_0 [label="\
-// Block 0; (0, max 0)\nLiveIn: v0,v1\l\
-// LiveOut: v4\l\nv3 := add(v1, v0)\l\
+// Block 0; (0, max 0)\nLiveIn: v0[2],v1[1]\l\
+// LiveOut: v4[1]\l\nv3 := add(v1, v0)\l\
 // v4 := sub(v0, v3)\l\
 // "];
 // Block1_0Exit [label="FunctionReturn[v4]"];
@@ -55,8 +55,8 @@
 // FunctionEntry_h_0 [label="function h:
 //  h(v0)"];
 // FunctionEntry_h_0 -> Block3_0;
-// Block3_0 [label="\
-// Block 0; (0, max 0)\nLiveIn: v0\l\
+// Block3_0 [fillcolor="#FF746C", style=filled, label="\
+// Block 0; (0, max 0)\nLiveIn: v0[1]\l\
 // LiveOut: \l\nv2 := f(0, v0)\l\
 // h(v2)\l\
 // "];
@@ -67,7 +67,7 @@
 // FunctionEntry_i_0 -> Block4_0;
 // Block4_0 [label="\
 // Block 0; (0, max 0)\nLiveIn: \l\
-// LiveOut: v2,v4\l\nv2 := 514\l\
+// LiveOut: v2[1],v4[1]\l\nv2 := 514\l\
 // v4 := 771\l\
 // "];
 // Block4_0Exit [label="FunctionReturn[v2, v4]"];

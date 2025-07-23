@@ -154,11 +154,11 @@ private:
 				);
 				m_result << fmt::format(
 					"LiveIn: {}\\l\\\n",
-					fmt::join(m_liveness->liveIn(_id) | ranges::views::transform(valueToString), ",")
+					fmt::join(m_liveness->liveIn(_id) | ranges::views::transform([&](auto const& liveIn) { return valueToString(SSACFG::ValueId{liveIn.first}) + fmt::format("[{}]", liveIn.second); }), ",")
 				);
 				m_result << fmt::format(
 					"LiveOut: {}\\l\\n",
-					fmt::join(m_liveness->liveOut(_id) | ranges::views::transform(valueToString), ",")
+					fmt::join(m_liveness->liveOut(_id) | ranges::views::transform([&](auto const& liveOut) { return valueToString(SSACFG::ValueId{liveOut.first}) + fmt::format("[{}]", liveOut.second); }), ",")
 				);
 			}
 			else
