@@ -45,41 +45,8 @@ private:
 };
 
 class SSACFGStackLayoutGenerator {
-	struct PhiPreImageSlot
-	{
-		std::vector<std::tuple<SSACFG::BlockId, SSACFG::ValueId>> phiIds{}; // (target block, phiId)
-		SSACFG::ValueId preImage;
-
-		bool operator==(const PhiPreImageSlot& _other) const
-		{
-			return preImage == _other.preImage;
-		}
-
-		bool operator==(const SSACFG::ValueId& _valueId) const
-		{
-			return preImage == _valueId;
-		}
-
-		bool operator<(const PhiPreImageSlot& _other) const
-		{
-			return preImage < _other.preImage;
-		}
-
-		bool operator<(const SSACFG::ValueId& _valueId) const
-		{
-			return preImage < _valueId;
-		}
-	};
-
-	template <typename T, typename... Args> struct variantConcat;
-	template <typename... Args0, typename... Args1>
-	struct variantConcat<std::variant<Args0...>, Args1...> {
-		using type = std::variant<Args0..., Args1...>;
-	};
-	template<typename... Args>
-	using variantConcatType = typename variantConcat<Args...>::type;
 public:
-	using Slot = variantConcatType<ssa::SSACFGStackLayout::Slot, PhiPreImageSlot>;
+	using Slot = ssa::SSACFGStackLayout::Slot;
 
 	static ssa::ControlFlowLayout generate(ControlFlowLiveness const& _controlFlowLiveness);
 	static ssa::SSACFGStackLayout generate(SSACFGLiveness const& _cfgLiveness);
@@ -89,8 +56,6 @@ private:
 	{
 		bool operator()(Slot const& _slot) const
 		{
-			if (std::holds_alternative<PhiPreImageSlot>(_slot))
-				return m_cfg->isLiteralValue(std::get<PhiPreImageSlot>(_slot).preImage);
 			if (std::holds_alternative<SSACFG::ValueId>(_slot))
 				return m_cfg->isLiteralValue(std::get<SSACFG::ValueId>(_slot));
 			return std::holds_alternative<ssa::JunkSlot>(_slot) || std::holds_alternative<ssa::FunctionReturnLabel>(_slot);
