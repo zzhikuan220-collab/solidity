@@ -177,6 +177,14 @@ SSACFGLiveness::SSACFGLiveness(SSACFG const& _cfg):
 	fillOperationsLiveOut();
 }
 
+SSACFGLiveness::LivenessData SSACFGLiveness::used(SSACFG::BlockId const _blockId) const
+{
+	auto used = liveIn(_blockId);
+	for (auto const& [valueId, count] : liveOut(_blockId))
+		used.remove(valueId, count);
+	return used;
+}
+
 void SSACFGLiveness::runDagDfs()
 {
 	// SSA Book, Algorithm 9.2

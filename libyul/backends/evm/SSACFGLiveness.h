@@ -105,11 +105,11 @@ public:
 		/// downstream across all possible execution paths from this program point.
 		LiveCounts liveCounts;
 	};
-	// using OperationLivenessData = std::set<LiveValue>;
 	explicit SSACFGLiveness(SSACFG const& _cfg);
 
 	LivenessData const& liveIn(SSACFG::BlockId const _blockId) const { return m_liveIns[_blockId.value]; }
 	LivenessData const& liveOut(SSACFG::BlockId const _blockId) const { return m_liveOuts[_blockId.value]; }
+	LivenessData used(SSACFG::BlockId _blockId) const;
 	std::vector<LivenessData> const& operationsLiveOut(SSACFG::BlockId _blockId) const { return m_operationLiveOuts[_blockId.value]; }
 	ForwardSSACFGTopologicalSort const& topologicalSort() const { return m_topologicalSort; }
 	SSACFG const& cfg() const { return m_cfg; }

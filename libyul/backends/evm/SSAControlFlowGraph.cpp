@@ -154,11 +154,16 @@ private:
 				);
 				m_result << fmt::format(
 					"LiveIn: {}\\l\\\n",
-					fmt::join(m_liveness->liveIn(_id) | ranges::views::transform([&](auto const& liveIn) { return valueToString(SSACFG::ValueId{liveIn.first}) + fmt::format("[{}]", liveIn.second); }), ",")
+					fmt::join(m_liveness->liveIn(_id) | ranges::views::transform([&](auto const& liveIn) { return valueToString(SSACFG::ValueId{liveIn.first}) + fmt::format("[{}]", liveIn.second); }), ", ")
 				);
 				m_result << fmt::format(
-					"LiveOut: {}\\l\\n",
-					fmt::join(m_liveness->liveOut(_id) | ranges::views::transform([&](auto const& liveOut) { return valueToString(SSACFG::ValueId{liveOut.first}) + fmt::format("[{}]", liveOut.second); }), ",")
+					"LiveOut: {}\\l\\\n",
+					fmt::join(m_liveness->liveOut(_id) | ranges::views::transform([&](auto const& liveOut) { return valueToString(SSACFG::ValueId{liveOut.first}) + fmt::format("[{}]", liveOut.second); }), ", ")
+				);
+				auto const usedVariables = m_liveness->used(_id);
+				m_result << fmt::format(
+					"Used: {}\\l\\n",
+					fmt::join(usedVariables | ranges::views::transform([&](auto const& used) { return valueToString(SSACFG::ValueId{used.first}) + fmt::format("[{}]", used.second); }), ", ")
 				);
 			}
 			else
