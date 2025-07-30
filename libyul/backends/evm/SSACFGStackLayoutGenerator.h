@@ -65,7 +65,7 @@ private:
 	};
 
 public:
-	using Stack = ssa::Stack<Slot, ssa::NoOpStackManipulationCallbacks<Slot>, SlotCanBeFreelyGenerated>;
+	using Stack = ssa::Stack<Slot>;
 
 private:
 	explicit SSACFGStackLayoutGenerator(SSACFGLiveness const& _liveness);
