@@ -1480,6 +1480,7 @@ void CompilerStack::assembleYul(
 			compiledContract.evmAssembly->isCreation(),
 			compiledContract.object.subAssemblyData
 		}};
+		compiledContract.object.adjustOffsetsToAbsolute();
 	}
 	catch (evmasm::AssemblyException const& error)
 	{

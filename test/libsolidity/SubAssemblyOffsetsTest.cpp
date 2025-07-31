@@ -23,9 +23,6 @@
 #include <test/Metadata.h>
 #include <test/Common.h>
 #include <libsolidity/interface/CompilerStack.h>
-#include <libsolidity/interface/Version.h>
-#include <libsolutil/SwarmHash.h>
-#include <libsolutil/IpfsHash.h>
 #include <libsolutil/JSON.h>
 
 #include <boost/test/unit_test.hpp>
@@ -145,7 +142,7 @@ BOOST_AUTO_TEST_CASE(contract_with_nested_subassembly)
 
 					evmasm::LinkerObject::Structure const& thirdSubAssemblyObject = secondSubAssemblyObject.subAssemblies[0];
 					BOOST_REQUIRE(thirdSubAssemblyObject.isCreation == false);
-					BOOST_REQUIRE(thirdSubAssemblyObject.start + thirdSubAssemblyObject.length == secondSubAssemblyObject.length);
+					BOOST_REQUIRE(thirdSubAssemblyObject.start + thirdSubAssemblyObject.length == secondSubAssemblyObject.start + secondSubAssemblyObject.length);
 					BOOST_REQUIRE(thirdSubAssemblyObject.subAssemblies.empty());
 				}
 			}

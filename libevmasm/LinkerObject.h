@@ -104,6 +104,10 @@ struct LinkerObject
 	/// Links the given libraries by replacing their uses in the code and removes them from the references.
 	void link(std::map<std::string, util::h160> const& _libraryAddresses);
 
+	/// Adjust subassembly offsets to absolute values within bytecode. May be called once only.
+	/// Uses `adjustSubAssemblyOffsets` recursive helper to traverse the structure and adjust offsets.
+	void adjustOffsetsToAbsolute();
+
 	/// @returns a hex representation of the bytecode of the given object, replacing unlinked
 	/// addresses by placeholders. This output is lowercase.
 	std::string toHex() const;
@@ -120,6 +124,10 @@ private:
 		std::string const& _linkRefName,
 		std::map<std::string, util::h160> const& _libraryAddresses
 	);
+
+	bool offsetsAdjusted = false;
+
+	void adjustSubAssemblyOffsets(Structure& _parent);
 };
 
 }

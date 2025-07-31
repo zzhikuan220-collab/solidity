@@ -64,6 +64,7 @@ void EVMAssemblyStack::assemble()
 		m_evmAssembly->isCreation(),
 		m_object.subAssemblyData
 	}};
+	m_object.adjustOffsetsToAbsolute();
 	// TODO: Check for EOF
 	solAssert(m_evmAssembly->codeSections().size() == 1);
 	m_sourceMapping = AssemblyItem::computeSourceMapping(m_evmAssembly->codeSections().front().items, sourceIndices());

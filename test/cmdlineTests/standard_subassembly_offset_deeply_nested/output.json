@@ -1,0 +1,77 @@
+{
+    "contracts": {
+        "contract.sol": {
+            "Storage": {
+                "evm": {
+                    "bytecode": {
+                        "assemblyStructure": {
+                            "isCreation": true,
+                            "length": 5579,
+                            "start": 0,
+                            "subAssemblies": [
+                                {
+                                    "isCreation": false,
+                                    "length": 684,
+                                    "start": 878
+                                },
+                                {
+                                    "isCreation": true,
+                                    "length": 4017,
+                                    "start": 1562,
+                                    "subAssemblies": [
+                                        {
+                                            "isCreation": false,
+                                            "length": 451,
+                                            "start": 2439
+                                        },
+                                        {
+                                            "isCreation": true,
+                                            "length": 2689,
+                                            "start": 2890,
+                                            "subAssemblies": [
+                                                {
+                                                    "isCreation": false,
+                                                    "length": 451,
+                                                    "start": 3767
+                                                },
+                                                {
+                                                    "isCreation": true,
+                                                    "length": 1361,
+                                                    "start": 4218,
+                                                    "subAssemblies": [
+                                                        {
+                                                            "isCreation": false,
+                                                            "length": 451,
+                                                            "start": 5094
+                                                        },
+                                                        {
+                                                            "isCreation": true,
+                                                            "length": 34,
+                                                            "start": 5545,
+                                                            "subAssemblies": [
+                                                                {
+                                                                    "isCreation": false,
+                                                                    "length": 8,
+                                                                    "start": 5571
+                                                                }
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "sources": {
+        "contract.sol": {
+            "id": 0
+        }
+    }
+}

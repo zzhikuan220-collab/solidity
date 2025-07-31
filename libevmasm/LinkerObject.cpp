@@ -21,8 +21,10 @@
  */
 
 #include <libevmasm/LinkerObject.h>
+#include <liblangutil/Exceptions.h>
 #include <libsolutil/CommonData.h>
 #include <libsolutil/Keccak256.h>
+
 
 using namespace solidity;
 using namespace solidity::util;
@@ -58,6 +60,23 @@ std::string LinkerObject::toHex() const
 			hex[pos + 2 + i] = hash.at(i);
 	}
 	return hex;
+}
+
+void LinkerObject::adjustOffsetsToAbsolute()
+{
+	solAssert(!offsetsAdjusted, "Offsets already adjusted.");
+	solAssert(subAssemblyData.size() == 1);
+	adjustSubAssemblyOffsets(subAssemblyData[0]);
+	offsetsAdjusted = true;
+}
+
+void LinkerObject::adjustSubAssemblyOffsets(Structure& _parent)
+{
+	for (auto& sub: _parent.subAssemblies)
+	{
+		sub.start += _parent.start;
+		adjustSubAssemblyOffsets(sub);
+	}
 }
 
 std::string LinkerObject::libraryPlaceholder(std::string const& _libraryName)
