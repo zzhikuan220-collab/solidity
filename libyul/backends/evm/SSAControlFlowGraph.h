@@ -33,6 +33,7 @@
 #include <libsolutil/Numeric.h>
 
 #include <range/v3/view/map.hpp>
+#include <fmt/format.h>
 #include <deque>
 #include <functional>
 #include <list>
@@ -284,3 +285,17 @@ public:
 };
 
 }
+
+template<>
+struct fmt::formatter<solidity::yul::SSACFG::BlockId>
+{
+	static auto constexpr parse(format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
+
+	template<typename FormatContext>
+	auto format(solidity::yul::SSACFG::BlockId const& _blockId, FormatContext& _ctx) const -> decltype(_ctx.out())
+	{
+		if (_blockId.value == std::numeric_limits<size_t>::max())
+			return fmt::format_to(_ctx.out(), "empty");
+		return fmt::format_to(_ctx.out(), "{}", _blockId.value);
+	}
+};
