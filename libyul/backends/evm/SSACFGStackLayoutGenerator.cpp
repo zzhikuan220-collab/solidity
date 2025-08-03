@@ -198,6 +198,7 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 	Stack& _stack
 )
 {
+#if 0
 	yulAssert(_operationIndex < m_cfg.block(_blockId).operations.size());
 	auto const& operation = m_cfg.block(_blockId).operations[_operationIndex];
 	auto const& operationLiveOut = m_liveness.operationsLiveOut(_blockId)[_operationIndex];
@@ -279,6 +280,7 @@ void SSACFGStackLayoutGenerator::propagateStackThroughOperation(
 		_stack.pop();
 	for (auto const& val: operation.outputs)
 		_stack.push(val);
+#endif
 }
 
 void SSACFGStackLayoutGenerator::handleBlockSuccessorsStackIn(SSACFG::BlockId const _blockId)
@@ -317,6 +319,7 @@ void SSACFGStackLayoutGenerator::handleStackInViaJumpExit(
 	SSACFG::BasicBlock::Jump const& _jump
 )
 {
+#if 0
 	if (blockHasDefinedStackIn(_jump.target))
 		return;
 
@@ -350,6 +353,7 @@ void SSACFGStackLayoutGenerator::handleStackInViaJumpExit(
 	}
 
 	markBlockHasDefinedStackIn(_jump.target);
+#endif
 }
 
 void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
@@ -357,6 +361,7 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 	SSACFG::BasicBlock::ConditionalJump const& _condJump
 )
 {
+#if 0
 	// todo i have popped too much. if the variable as well as phi(variable) are requested, they both must end up in the layout!
 	//		at the operation level i have forgotten where i came from
 
@@ -420,6 +425,7 @@ void SSACFGStackLayoutGenerator::handleStackInViaConditionalJumpExit(
 		}
 		markBlockHasDefinedStackIn(_condJump.zero);
 	}
+#endif
 }
 
 bool SSACFGStackLayoutGenerator::blockIsGenerated(SSACFG::BlockId const _blockId) const
