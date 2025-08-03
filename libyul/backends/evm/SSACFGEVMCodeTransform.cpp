@@ -19,9 +19,10 @@
 
 #include <libyul/backends/evm/SSACFGEVMCodeTransform.h>
 
+#include <libyul/backends/evm/ssa/StackLayoutGenerator.h>
+
 #include <libyul/backends/evm/ControlFlowGraph.h>
 #include <libyul/backends/evm/SSAControlFlowGraphBuilder.h>
-#include <libyul/backends/evm/SSACFGStackLayoutGenerator.h>
 #include <libyul/backends/evm/SSACFGStackShuffler.h>
 
 #include <libsolutil/StringUtils.h>
@@ -137,7 +138,7 @@ SSACFGEVMCodeTransform::SSACFGEVMCodeTransform
 	m_assembly(_assembly),
 	m_builtinContext(_builtinContext),
 	m_cfg(_cfg),
-	m_stackLayout(SSACFGStackLayoutGenerator::generate(_liveness)),
+	m_stackLayout(StackLayoutGenerator::generate(_liveness)),
 	m_assemblyCallbacks{
 		.cfg = &_cfg,
 		.assembly = &_assembly,
