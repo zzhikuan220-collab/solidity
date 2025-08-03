@@ -298,7 +298,7 @@ void SSACFGLiveness::fillOperationsLiveOut()
 				*rit = live;
 				auto const operationInputs = op.inputs | ranges::views::filter(literalsFilter(m_cfg)) | ranges::to<std::vector>;
 				for (auto const& output: op.outputs | ranges::views::filter(literalsFilter(m_cfg)))
-					live.remove(output);
+					live.erase(output);
 				for (auto const input: operationInputs)
 					live.insert(input);
 				++rit;
