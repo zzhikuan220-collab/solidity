@@ -220,7 +220,7 @@ void SSACFGLiveness::runDagDfs()
 					auto liveInWithoutPhiDefs = m_liveIns[_successor.value];
 					for (auto const& phiId: m_cfg.block(_successor).phis)
 						liveInWithoutPhiDefs.erase(phiId);
-					live += liveInWithoutPhiDefs;
+					live.maxUnion(liveInWithoutPhiDefs);
 				}
 			});
 
