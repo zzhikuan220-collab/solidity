@@ -248,12 +248,14 @@ void StackLayoutGenerator::defineStackIn(SSACFG::BlockId const& _blockId)
 	if (block.entries.size() == 1)
 	{
 		// pass through
-		yulAssert(block.phis.empty());
 		yulAssert(parentExits.size() == 1);
 		// todo option1: shuffle junk to the bottom and/or pop it if non-junk isn't reachable
 		// todo option2: pass through
 		// todo option3: hard sort by usage frequency
 		m_stackLayout[_blockId].stackIn = *parentExits[0].second;
+
+		if (!block.phis.empty())
+			handlePhiFunctions(m_stackLayout[_blockId].stackIn, ReversePhiFunctionTransform(m_cfg, parentExits[0].first, _blockId), m_liveness.liveIn(_blockId));
 
 		/*StackType stackIn(m_stackLayout[_blockId].stackIn, {}, {&m_cfg});
 		declareJunk(stackIn, liveIn);
