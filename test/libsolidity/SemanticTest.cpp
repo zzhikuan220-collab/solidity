@@ -586,7 +586,7 @@ bool SemanticTest::checkGasCostExpectation(TestFunctionCall& io_test, bool _comp
 	// or setting is "ir" and it's not included in expectations
 	// or if the called function is an isoltest builtin e.g. `smokeTest` or `storageEmpty`
 	if (
-		!m_enforceGasCost ||
+		m_enforceGasCost ||
 		m_gasUsed < m_enforceGasCostMinValue ||
 		m_gasUsed >= InitialGas ||
 		(setting == "ir" && io_test.call().expectations.gasUsedExcludingCode.count(setting) == 0) ||
