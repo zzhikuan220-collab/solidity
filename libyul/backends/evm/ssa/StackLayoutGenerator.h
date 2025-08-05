@@ -22,12 +22,13 @@ public:
 	static SSACFGStackLayout generate(SSACFGLiveness const& _cfgLiveness);
 
 private:
+	static void handlePhiFunctions(StackData& _stackData, ReversePhiFunctionTransform const& _phiInverse, SSACFGLiveness::LivenessData const& _liveness);
+
 	explicit StackLayoutGenerator(SSACFGLiveness const& _liveness);
 
 	SSACFGStackLayout const& computeStackLayout();
 	void defineStackIn(SSACFG::BlockId const& _blockId);
 	void visitBlock(SSACFG::BlockId const& _blockId);
-	StackData applyPhiFunctions(SSACFG::BlockId const& _source, SSACFG::BlockId const& _target);
 
 	SSACFGLiveness const& m_liveness;
 	SSACFG const& m_cfg;

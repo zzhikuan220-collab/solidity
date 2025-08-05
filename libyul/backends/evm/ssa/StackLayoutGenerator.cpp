@@ -1,5 +1,8 @@
+#include "libyul/backends/evm/SSACFGLiveness.h"
 #include "libyul/backends/evm/SSACFGStackShuffler.h"
 #include "range/v3/algorithm/none_of.hpp"
+#include "range/v3/algorithm/replace.hpp"
+#include "range/v3/algorithm/sort.hpp"
 
 
 #include <libyul/backends/evm/ssa/StackLayoutGenerator.h>
@@ -14,25 +17,12 @@ namespace
 #if !defined(NDEBUG)
 bool constexpr debugOutput = true;
 #else
-bool constexpr debugOutput = true;
+bool constexpr debugOutput = false;
 #endif
 template<typename Slot>
 [[maybe_unused]] std::vector<Slot> pileOfJunk(size_t const _size)
 {
 	return std::vector<Slot>(_size, ssa::JunkSlot{});
-}
-
-template<typename StackData>
-size_t junkTailSize(StackData const& _stackData)
-{
-	std::size_t numJunk = 0;
-	auto it = _stackData.begin();
-	while (it != _stackData.end() && std::holds_alternative<ssa::JunkSlot>(*it))
-	{
-		++numJunk;
-		++it;
-	}
-	return numJunk;
 }
 
 /*class IsSSACFGLiteral
@@ -49,6 +39,87 @@ public:
 private:
 	SSACFG const& m_cfg;
 };*/
+
+void declareJunk(StackLayoutGenerator::StackType& _stack, SSACFGLiveness::LivenessData const& _live)
+{
+	for (size_t depth = 0; depth < _stack.size(); ++depth)
+		if (auto const* valueId = std::get_if<SSACFG::ValueId>(&_stack.slot(depth)))
+			if (!_live.contains(*valueId))
+				_stack.declareJunk(depth);
+}
+
+void junkShuffler(StackLayoutGenerator::StackType& _stack)
+{
+	// goal is to have the junk in one block at the bottom
+	auto numJunk = ranges::count_if(_stack, [](auto const& _slot) { return std::holds_alternative<ssa::JunkSlot>(_slot); });
+	size_t i = 0;
+	while (numJunk > 0 && i < numJunk)
+	{
+		auto const depth = _stack.size() - i - 1;
+		if (std::holds_alternative<ssa::JunkSlot>(_stack.data()[i]))
+		{
+			// we have a block of i junk slots at the bottom
+			++i;
+			continue;
+		}
+
+		if (std::holds_alternative<ssa::JunkSlot>(_stack.top()))
+		{
+			// todo it might be cheaper to swap or to pop
+			/*// if we can reach the non-junk slot, swap it up, else pop the junk
+			if (depth <= 16)
+			{
+				_stack.swap(depth);
+				++i;
+				continue;
+			}
+			else*/
+			{
+				_stack.pop();
+				--numJunk;
+				continue;
+			}
+		}
+
+		// find the next best junk to swap to the top:
+		//   - if there is a junk slot in reach that is in isolation, ie, surrounded by non-junk, take that one
+		//   - otherwise, if just take whatever junk slot is in reach
+		//   - if none is in reach, give up and break
+		std::optional<size_t> nonIsolatedJunk(std::nullopt);
+		std::optional<size_t> isolatedJunk(std::nullopt);
+		for (size_t junkDepth = 1; junkDepth < std::min(static_cast<size_t>(17), _stack.size()); ++junkDepth)
+			if (std::holds_alternative<ssa::JunkSlot>(_stack.slot(junkDepth)))
+			{
+				bool isolated = !std::holds_alternative<ssa::JunkSlot>(_stack.slot(junkDepth - 1));
+				if (junkDepth + 1 < _stack.size())
+					isolated &= !std::holds_alternative<ssa::JunkSlot>(_stack.slot(junkDepth + 1));
+
+				if (isolated)
+				{
+					isolatedJunk = junkDepth;
+					break;
+				}
+
+				if (!nonIsolatedJunk)
+					nonIsolatedJunk = junkDepth;
+			}
+
+		if (isolatedJunk)
+		{
+			_stack.swap(*isolatedJunk);
+			continue;
+		}
+
+		if (nonIsolatedJunk)
+		{
+			_stack.swap(*nonIsolatedJunk);
+			continue;
+		}
+
+		break;
+	}
+}
+
 }
 
 StackLayoutGenerator::StackLayoutGenerator(SSACFGLiveness const& _liveness):
@@ -76,8 +147,42 @@ ControlFlowLayout StackLayoutGenerator::generate(ControlFlowLiveness const& _con
 SSACFGStackLayout StackLayoutGenerator::generate(SSACFGLiveness const& _cfgLiveness)
 {
 	if constexpr (debugOutput)
-		std::cout << "stack layout for " << (_cfgLiveness.cfg().function ? _cfgLiveness.cfg().function->name.str() : "main graph") << '\n';
+		std::cout << "stack layout for "
+				  << (_cfgLiveness.cfg().function ? _cfgLiveness.cfg().function->name.str() : "main graph") << '\n';
 	return StackLayoutGenerator{_cfgLiveness}.computeStackLayout();
+}
+void StackLayoutGenerator::handlePhiFunctions(StackData& _stackData, ReversePhiFunctionTransform const& _phiInverse, SSACFGLiveness::LivenessData const& _liveness)
+{
+	// add any phi function values here that are not already contained in the stack
+	for (auto const& [phi, preImage]: _phiInverse.data())
+	{
+		// yulAssert(nonZeroLiveIn.contains(phi));
+		// v = phi^{-1}(v_phi)
+		// auto const& preImage = nonZeroPreImage.data().at(phi);
+		auto it = ranges::find(_stackData, Slot{preImage});
+		if (_liveness.contains(preImage))
+		{
+			// Both the phi function and the pre image are part of the live in set.
+			// We check if there is more than one v.
+			// If so, one of them is symbolically replaced by the phi function;
+			// otherwise, we push the phi function value.
+			// We must have the pre image here at least once, otherwise it's an invalid dup
+			yulAssert(it != _stackData.end());
+			auto it2 = ranges::find(it + 1, _stackData.end(), Slot{preImage});
+			if(it2 != _stackData.end())
+				*it2 = phi;
+			else
+				_stackData.emplace_back(phi);
+		}
+		else
+		{
+			// replace all v with phi
+			ranges::replace(_stackData, Slot{preImage}, Slot{phi});
+			// if its not contained, push it (could be derived from a literal)
+			if (it == _stackData.end())
+				_stackData.emplace_back(phi);
+		}
+	}
 }
 
 SSACFGStackLayout const& StackLayoutGenerator::computeStackLayout()
@@ -133,10 +238,10 @@ void StackLayoutGenerator::defineStackIn(SSACFG::BlockId const& _blockId)
 
 	auto const& block = m_cfg.block(_blockId);
 
-	std::vector<StackData const*> parentExits;
+	std::vector<std::pair<SSACFG::BlockId, StackData const*>> parentExits;
 	for (auto const& entry: block.entries)
 		if (m_blockIsGenerated[entry.value])
-			parentExits.push_back(&m_stackLayout[entry].stackOut);
+			parentExits.emplace_back(entry, &m_stackLayout[entry].stackOut);
 
 	yulAssert(!parentExits.empty(), fmt::format("None of the parents of block {} were generated", _blockId));
 
@@ -145,13 +250,30 @@ void StackLayoutGenerator::defineStackIn(SSACFG::BlockId const& _blockId)
 		// pass through
 		yulAssert(block.phis.empty());
 		yulAssert(parentExits.size() == 1);
-		m_stackLayout[_blockId].stackIn = *parentExits[0];
+		// todo option1: shuffle junk to the bottom and/or pop it if non-junk isn't reachable
+		// todo option2: pass through
+		// todo option3: hard sort by usage frequency
+		m_stackLayout[_blockId].stackIn = *parentExits[0].second;
+
+		/*StackType stackIn(m_stackLayout[_blockId].stackIn, {}, {&m_cfg});
+		declareJunk(stackIn, liveIn);
+
+		auto numJunk = ranges::count_if(stackIn, [](auto const& _slot) { return std::holds_alternative<ssa::JunkSlot>(_slot); });
+		// junkShuffler(stackIn);
+		m_stackLayout[_blockId].stackIn = pileOfJunk<Slot>(numJunk);
+		{
+			std::vector sortedLiveIn(liveIn.begin(), liveIn.end());
+			ranges::sort(sortedLiveIn, [](auto const& l1, auto const& l2) { return std::get<1>(l1) > std::get<1>(l2); });
+			for (const auto& var: sortedLiveIn | ranges::views::keys)
+				if (!block.phis.contains(var) && !usedVariables.contains(var))
+					unifiedStack.emplace_back(var);
+		}*/
 	}
 	else
 	{
 		// we have more than one entry and need to unify or at the very least apply phi fct.
 		auto const& liveIn = m_liveness.liveIn(_blockId);
-		auto usedVariables = m_liveness.used(_blockId);
+		/*auto usedVariables = m_liveness.used(_blockId);
 
 		// todo use the most fitting one
 		//		from grey approach and each of the predecessor stacks
@@ -159,14 +281,21 @@ void StackLayoutGenerator::defineStackIn(SSACFG::BlockId const& _blockId)
 		std::vector<Slot> unifiedStack(block.phis.begin(), block.phis.end());
 		// then all variables that are used
 		// todo could be sorted by usage frequency
-		for (auto const& [var, numUsed]: usedVariables)
-			if (!block.phis.contains(var))
-				unifiedStack.emplace_back(var);
+		{
+			std::vector sortedUsedVars(usedVariables.begin(), usedVariables.end());
+			ranges::sort(sortedUsedVars, [](auto const& l1, auto const& l2) { return std::get<1>(l1) > std::get<1>(l2); });
+			for (const auto& var: sortedUsedVars | ranges::views::keys)
+				if (!block.phis.contains(var))
+					unifiedStack.emplace_back(var);
+		}
 		// then all variables that are live in but not used
-		// todo could be sorted by usage frequency
-		for (auto const& [var, numUsed]: liveIn)
-			if (!block.phis.contains(var) && !usedVariables.contains(var))
-				unifiedStack.emplace_back(var);
+		{
+			std::vector sortedLiveIn(liveIn.begin(), liveIn.end());
+			ranges::sort(sortedLiveIn, [](auto const& l1, auto const& l2) { return std::get<1>(l1) > std::get<1>(l2); });
+			for (const auto& var: sortedLiveIn | ranges::views::keys)
+				if (!block.phis.contains(var) && !usedVariables.contains(var))
+					unifiedStack.emplace_back(var);
+		}*/
 
 		// todo junk
 
@@ -182,7 +311,11 @@ void StackLayoutGenerator::defineStackIn(SSACFG::BlockId const& _blockId)
 			}
 			// Case 3: Skip! (no "bottom" needed)
 		}*/
-		m_stackLayout[_blockId].stackIn = unifiedStack | ranges::views::reverse | ranges::to<std::vector>;
+		m_stackLayout[_blockId].stackIn = *parentExits[0].second;
+		StackType stack(m_stackLayout[_blockId].stackIn, {}, {&m_cfg});
+		declareJunk(stack, liveIn);
+		handlePhiFunctions(m_stackLayout[_blockId].stackIn, ReversePhiFunctionTransform(m_cfg, parentExits[0].first, _blockId), liveIn);
+		//m_stackLayout[_blockId].stackIn = unifiedStack | ranges::views::reverse | ranges::to<std::vector>;
 	}
 
 	m_blockHasStackInDefined[_blockId.value] = true;
@@ -200,10 +333,6 @@ void StackLayoutGenerator::visitBlock(SSACFG::BlockId const& _blockId)
 	if constexpr (debugOutput)
 		std::cout << fmt::format(
 			"\tBlock {} (junk={}, stackIn={})\n", _blockId, junkCanBeAdded, stackToString(currentStackData, m_cfg));
-
-	auto const& blockLiveIn = m_liveness.liveIn(_blockId);
-	auto const& blockLiveOut = m_liveness.liveOut(_blockId);
-	auto variablesUsed = m_liveness.used(_blockId);
 
 	SSACFG::BasicBlock const& block = m_cfg.block(_blockId);
 
@@ -249,6 +378,11 @@ void StackLayoutGenerator::visitBlock(SSACFG::BlockId const& _blockId)
 		};*/
 		// auto tail = _stack.data();
 
+		for (size_t depth = 0; depth < stack.size(); ++depth)
+			if (!liveOutWithoutOutputsSet.contains(stack.slot(depth)) && ranges::find(requiredStackTop, stack.slot(depth)) == ranges::end(requiredStackTop))
+				stack.declareJunk(depth);
+		junkShuffler(stack);
+
 		if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_blockId))
 		{
 			if constexpr(debugOutput)
@@ -271,10 +405,46 @@ void StackLayoutGenerator::visitBlock(SSACFG::BlockId const& _blockId)
 			stack.push(val);
 	}
 
-	// todo for conditional jump exits, we might want to change the current stack data to something that is more easily
-	//		digestible for zero and nonZero branches.
-	//		This might be achieved by just trying it out and counting ops.
+	if (auto const* cjump = std::get_if<SSACFG::BasicBlock::ConditionalJump>(&block.exit))
+	{
+		auto const& nonZeroLiveIn = m_liveness.liveIn(cjump->nonZero);
+		auto const& zeroLiveIn = m_liveness.liveIn(cjump->zero);
+		//auto const nonZeroUsed = m_liveness.used(cjump->nonZero);
+		//auto const zeroUsed = m_liveness.used(cjump->zero);
+
+		SSACFGLiveness::LivenessData commonLiveOut;
+		for (auto const& [liveIn, target]: { std::pair{&zeroLiveIn, cjump->zero}, std::pair{&nonZeroLiveIn, cjump->nonZero} }) {
+			ReversePhiFunctionTransform transf(m_cfg, _blockId, target);
+			for (auto const& [valueId, count]: *liveIn)
+				commonLiveOut.insert(transf(valueId), count);
+		}
+
+		// mark all as junk that are not live
+		declareJunk(stack, commonLiveOut);
+		// pop everything not in the combined pre image
+		// we can ignore the phi function pre-image slots because they are definitely in the combined liveness
+		while (
+			stack.size() > 0 &&
+			std::holds_alternative<SSACFG::ValueId>(stack.top()) &&
+			!commonLiveOut.contains(std::get<SSACFG::ValueId>(stack.top()))
+		)
+			stack.pop();
+		for (auto it = stack.data().rbegin(); it != stack.data().rend(); ++it)
+		{
+			if (std::holds_alternative<SSACFG::ValueId>(*it) && !commonLiveOut.contains(std::get<SSACFG::ValueId>(*it)))
+			{
+				yulAssert(it != stack.data().rbegin()); // this shouldn't happen as we have already popped everything up front
+				auto const depth = static_cast<std::size_t>(std::distance(stack.data().rbegin(), it));
+				if (depth > 0)
+					stack.swap(depth);
+				stack.pop();
+			}
+		}
+	}
 
 	m_stackLayout[_blockId].stackOut = currentStackData;
 	m_blockIsGenerated[_blockId.value] = true;
+
+	if constexpr (debugOutput)
+		std::cout << fmt::format("\t\tstack out = {}\n", stackToString(currentStackData, m_cfg));
 }
