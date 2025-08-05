@@ -101,7 +101,18 @@ struct NoOpStackManipulationCallbacks
 };
 static_assert(StackManipulationCallbackConcept<NoOpStackManipulationCallbacks<StackSlot>, StackSlot>);
 
-
+template<typename StackData>
+size_t junkTailSize(StackData const& _stackData)
+{
+	std::size_t numJunk = 0;
+	auto it = _stackData.begin();
+	while (it != _stackData.end() && std::holds_alternative<JunkSlot>(*it))
+	{
+		++numJunk;
+		++it;
+	}
+	return numJunk;
+}
 std::string slotToString(StackSlot const& _slot, SSACFG const& _cfg);
 std::string stackToString(StackData const& _stackData, SSACFG const& _cfg);
 
@@ -163,6 +174,12 @@ public:
 	{
 		yulAssert(_depth < m_data->size());
 		(*m_data)[m_data->size() - _depth - 1] = JunkSlot{};
+	}
+
+	Slot const& slot(size_t const _depth) const
+	{
+		yulAssert(_depth < m_data->size());
+		return (*m_data)[m_data->size() - _depth - 1];
 	}
 
 	void dup(Slot const& _slot)
