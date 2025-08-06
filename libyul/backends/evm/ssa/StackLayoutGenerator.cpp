@@ -1,5 +1,6 @@
 #include "libyul/backends/evm/SSACFGLiveness.h"
 #include "libyul/backends/evm/SSACFGStackShuffler.h"
+#include "range/v3/algorithm/equal.hpp"
 #include "range/v3/algorithm/none_of.hpp"
 #include "range/v3/algorithm/replace.hpp"
 #include "range/v3/algorithm/sort.hpp"
@@ -48,6 +49,346 @@ void declareJunk(StackLayoutGenerator::StackType& _stack, SSACFGLiveness::Livene
 				_stack.declareJunk(depth);
 }
 
+template<size_t ReachableStackDepth=16>
+class OperationForwardShuffler
+{
+	using Stack = StackLayoutGenerator::StackType;
+	using Slot = Stack::Slot;
+
+public:
+	static void shuffle(
+		Stack& _stack,
+		std::vector<Slot> const& _requiredTop,
+		SSACFGLiveness::LivenessData const& _liveOut,
+		bool _generateJunk
+	)
+	{
+		constexpr std::size_t maxIterations = 1000;
+		std::size_t i = 0;
+		for (; i < maxIterations && shuffleStep(_stack, _requiredTop, _liveOut, _generateJunk); ++i) {}
+		yulAssert(i < maxIterations, "Maximum iterations reached");
+	}
+
+private:
+	template<ranges::range Slots>
+	static std::map<Slot, size_t> histogram(Slots const& _slots)
+	{
+		std::map<Slot, size_t> result;
+		for (auto const& slot: _slots)
+		{
+			auto const [it, _] = result.try_emplace(slot);
+			++it->second;
+		}
+		return result;
+	}
+
+	struct Ops
+	{
+		Ops(Stack const& _stack, std::vector<Slot> const& _requiredTop, SSACFGLiveness::LivenessData const& _liveOut):
+			currentCounts(histogram(_stack)),
+			targetCountsHead(histogram(_requiredTop)),
+			stack(_stack),
+			requiredTop(_requiredTop),
+			liveOut(_liveOut)
+		{}
+
+		bool canBePopped(Slot const& _slot) const
+		{
+			if (std::holds_alternative<ssa::JunkSlot>(_slot))
+				return true;
+			if (auto const* valueId = std::get_if<SSACFG::ValueId>(&_slot))
+			{
+				auto const headCounts = solidity::util::valueOrDefault(targetCountsHead, _slot, 0);
+				if (liveOut.count(*valueId) + headCounts > 0)
+					return currentCounts.at(*valueId) > headCounts + 1; // todo or it can be freely generated
+
+				return true;
+			}
+			return false;
+		}
+
+		bool isCompatible(size_t _sourceDepth, size_t _targetDepth) const
+		{
+			if (_sourceDepth >= stack.size())
+				return false;
+
+			auto const& currentSlot = stack.slot(_sourceDepth);
+			if (_targetDepth < requiredTop.size())
+			{
+				auto const& requiredTopSlot = *(requiredTop.rbegin() + _targetDepth);
+				return std::holds_alternative<ssa::JunkSlot>(requiredTopSlot) || requiredTopSlot == currentSlot;
+			}
+
+			if (auto const* valueId = std::get_if<SSACFG::ValueId>(&currentSlot))
+				return currentCounts.at(*valueId) < liveOut.count(*valueId) + solidity::util::valueOrDefault(targetCountsHead, currentSlot, 0);
+
+			// todo this ignores junk, we might want to declare swapping junk into the tail part as compatible, too
+			return false;
+		}
+
+		bool needsMoreOf(Slot const& _slot) const
+		{
+			auto const headCount = ranges::count_if(requiredTop, [&](auto const& _topSlot) { return _slot == _topSlot; });
+			auto const tailCount = [&]() -> std::uint32_t
+			{
+				if (auto const* valueId = std::get_if<SSACFG::ValueId>(&_slot))
+					return liveOut.count(*valueId);
+				return 0;
+			}();
+			auto const currentCount = solidity::util::valueOrDefault(currentCounts, _slot, 0);
+			if (headCount > 0)
+			{
+				if (currentCount == 0)
+					return true;
+
+				if (tailCount > 0)
+					return currentCount <= headCount;
+				return currentCount < headCount;
+			}
+
+			// if it was in the head, we already dealt with it
+			yulAssert(headCount == 0);
+			if (tailCount > 0 && currentCount == 0)
+				return true;
+			return false;
+		}
+
+		bool needsSlotBroughtUp() const
+		{
+			// the target top will be consumed, so if there's stuff in there that is also live out, it must occur
+			// twice in the stack (in the target top region (as often as required there) and then somewhere else)
+			// if there is something in target or live out that isn't on stack, that thing must be brought up (could be,
+			// e.g., a push constant)
+			return requiredSlot().has_value();
+		}
+
+		std::optional<Slot> requiredSlot() const
+		{
+			for (auto const& slot: requiredTop)
+				if (needsMoreOf(slot))
+					return true;
+			for (const auto& slot: liveOut | ranges::views::keys)
+				if (needsMoreOf(slot))
+					return slot;
+
+			return std::nullopt;
+		}
+
+		std::map<Slot, size_t> currentCounts;
+		std::map<Slot, size_t> targetCountsHead;
+		Stack const& stack;
+		std::vector<Slot> const& requiredTop;
+		SSACFGLiveness::LivenessData const& liveOut;
+	};
+
+	/// Finds a slot to dup or push with the aim of eventually fixing @a _targetOffset in the target.
+	/// In the simplest case, the slot at @a _targetOffset has a multiplicity > 0, i.e. it can directly be dupped or pushed
+	/// and the next iteration will fix @a _targetOffset.
+	/// But, in general, there may already be enough copies of the slot that is supposed to end up at @a _targetOffset
+	/// on stack, s.t. it cannot be dupped again. In that case there has to be a copy of the desired slot on stack already
+	/// elsewhere that is not yet in place (`nextOffset` below). The fact that ``nextOffset`` is not in place means that
+	/// we can (recursively) try bringing up the slot that is supposed to end up at ``nextOffset`` in the *target*.
+	/// When the target slot at ``nextOffset`` is fixed, the current source slot at ``nextOffset`` will be
+	/// at the stack top, which is the slot required at @a _targetOffset.
+	static bool bringUpTargetSlot(Ops const& _ops, Stack& _stack, size_t _targetDepth)
+	{
+		std::list toVisit{_targetDepth};
+		std::set<size_t> visited;
+
+		while (!toVisit.empty())
+		{
+			auto depth = *toVisit.begin();
+			toVisit.erase(toVisit.begin());
+			visited.emplace(depth);
+
+			if (depth < _ops.requiredTop.size())
+			{
+				auto const& slot = _ops.requiredTop[_ops.requiredTop.size() - depth - 1];
+				if (_ops.needsMoreOf(slot))
+				{
+					_stack.pushOrDup(slot);
+					return true;
+				}
+			}
+			else
+			{
+				// we are no longer in the stack top, so let's just find _some_ slot that we need more of
+				for (const auto& slot: _ops.liveOut | ranges::views::keys)
+					if (_ops.needsMoreOf(slot))
+					{
+						_stack.pushOrDup(slot);
+						return true;
+					}
+			}
+
+			// There must be another slot we can dup/push that will lead to the target slot at ``depth`` to be fixed.
+			for (auto nextDepth: ranges::views::iota(0u, std::min(_stack.size(), _ops.requiredTop.size() + 1)) | ranges::views::reverse)
+				if (
+					!_ops.isCompatible(nextDepth, nextDepth) &&
+					_ops.isCompatible(nextDepth, depth)
+				)
+					if (!visited.contains(nextDepth))
+						toVisit.emplace_back(nextDepth);
+		}
+		return false;
+	}
+
+	// If dupping an ideal slot causes a slot that will still be required to become unreachable, then dup
+	// the latter slot first.
+	// @returns true, if it performed a dup.
+	static bool dupDeepSlotIfRequired(Ops const& _ops, Stack& _stack)
+	{
+		// Check if the stack is large enough for anything to potentially become unreachable.
+		if (_stack.size() < ReachableStackDepth - 1)
+			return false;
+		// Check whether any deep slot might still be needed later (i.e. we still need to reach it with a DUP or SWAP).
+		for (size_t sourceOffset: ranges::views::iota(0u, _stack.size() - (ReachableStackDepth - 1)))
+		{
+			auto const sourceDepth = _stack.size() - sourceOffset - 1;
+			// This slot needs to be moved.
+			if (!_ops.isCompatible(sourceDepth, sourceDepth))
+			{
+				// If the current top fixes the slot, swap it down now.
+				if (_ops.isCompatible(0, sourceDepth))
+				{
+					_stack.swap(sourceDepth);
+					return true;
+				}
+				// Bring up a slot to fix this now, if possible.
+				if (bringUpTargetSlot(_ops, _stack, sourceDepth))
+					return true;
+				// Otherwise swap up the slot that will fix the offending slot.
+				for (auto offset: ranges::views::iota(sourceOffset + 1, _stack.size()))
+				{
+					auto const depth = _stack.size() - offset - 1;
+					if (_ops.isCompatible(depth, sourceDepth))
+					{
+						_stack.swap(depth);
+						return true;
+					}
+				}
+				// Otherwise give up - we will need stack compression or stack limit evasion.
+			}
+			// We need another copy of this slot.
+			else if (_ops.needsMoreOf(_stack.slot(sourceDepth)))
+			{
+				// If this slot occurs again later, we skip this occurrence.
+				if (ranges::any_of(
+					ranges::views::iota(sourceOffset + 1, _stack.size()),
+					[&](size_t _offset) { return _stack.slot(sourceDepth) == _stack.slot(_stack.size() - _offset - 1); }
+				))
+					continue;
+				// Bring up the target slot that would otherwise become unreachable.
+				for (size_t targetOffset: ranges::views::iota(0u, _ops.requiredTop.size()))
+				{
+					if (std::holds_alternative<ssa::JunkSlot>(_ops.requiredTop[targetOffset]))
+						continue;
+					if (_ops.isCompatible(sourceDepth, _ops.requiredTop.size() - targetOffset - 1))
+					{
+						_stack.pushOrDup(_ops.requiredTop[targetOffset]);
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	static bool shuffleStep(
+		Stack& _stack,
+		std::vector<Slot> const& _requiredTop,
+		SSACFGLiveness::LivenessData const& _liveOut,
+		bool const _generateJunk
+	)
+	{
+		Ops const ops(_stack, _requiredTop, _liveOut);
+
+		// Check if we have the required top already
+		if (_requiredTop.size() <= _stack.size())
+		{
+			bool const topIsCorrect = ranges::equal(
+				_stack.data().rbegin(), _stack.data().rbegin() + static_cast<std::ptrdiff_t>(_requiredTop.size()),
+				_requiredTop.rbegin(), _requiredTop.rend()
+			);
+
+			// if the top is fine and we still have enough slots for live out, we're done
+			if (topIsCorrect)
+			{
+				if (ops.needsSlotBroughtUp())
+				{
+					if (!dupDeepSlotIfRequired(ops, _stack))
+						// the top is fine, so we bring up something in the tail (pointed to by requiredTop.size())
+						yulAssert(bringUpTargetSlot(ops, _stack, ops.requiredTop.size()));
+					return true;
+				}
+				return false;
+			}
+		}
+
+		// If we no longer need the current stack top, we pop it
+		if (ops.canBePopped(_stack.top()))
+		{
+			_stack.pop();
+			return true;
+		}
+
+		yulAssert(_requiredTop.size() > 0, "From here on out, we need slots to be required in the top. Otherwise we should've terminated already.");
+
+		// If the top is not supposed to be exactly what is on top right now, try to find a lower position to swap it to.
+		if (!ops.isCompatible(0, 0))
+			for (size_t depth: ranges::views::iota(1u, std::min(_stack.size(), _requiredTop.size() + 1)) | ranges::views::reverse)
+				// It makes sense to swap to a lower position, if
+				if (
+					!ops.isCompatible(depth, depth) && // The lower slot is not already in position.
+					_stack.slot(depth) != _stack.top() && // We would not just swap identical slots.
+					ops.isCompatible(0, depth) // The lower position wants to have this slot.
+				)
+				{
+					// We cannot swap that deep.
+					if (depth > ReachableStackDepth)
+					{
+						// If there is a reachable slot to be removed, park the current top there.
+						for (size_t swapDepth: ranges::views::iota(1u, ReachableStackDepth + 1u) | ranges::views::reverse)
+							if (ops.canBePopped(_stack.slot(swapDepth)))
+							{
+								_stack.swap(swapDepth);
+								if (std::holds_alternative<ssa::JunkSlot>(_stack.top()))
+									// Usually we keep a slot that is to-be-removed, if the current top is arbitrary.
+									// However, since we are in a stack-too-deep situation, pop it immediately
+									// to compress the stack (we can always push back junk in the end).
+									_stack.pop();
+								return true;
+							}
+						// Otherwise, we rely on stack compression or stack-to-memory.
+					}
+					_stack.swap(depth);
+					return true;
+				}
+
+		// If the top is not in position, try to find a slot that wants to be at the top and swap it up.
+		if (!ops.isCompatible(0, 0))
+			for (size_t depth: ranges::views::iota(1u, _stack.size()))
+				if (
+					!ops.isCompatible(depth, depth) &&
+					ops.isCompatible(depth, 0)
+				)
+				{
+					_stack.swap(depth);
+					return true;
+				}
+
+		if (ops.needsSlotBroughtUp())
+		{
+			if (!dupDeepSlotIfRequired(ops, _stack))
+				// the top is fine, so we bring up something in the tail (pointed to by requiredTop.size())
+				yulAssert(bringUpTargetSlot(ops, _stack, ops.requiredTop.size()));
+			return true;
+		}
+
+		yulAssert(false, "reached final and forbidden state");
+	}
+};
+
 void junkShuffler(StackLayoutGenerator::StackType& _stack)
 {
 	// goal is to have the junk in one block at the bottom
@@ -55,7 +396,6 @@ void junkShuffler(StackLayoutGenerator::StackType& _stack)
 	size_t i = 0;
 	while (numJunk > 0 && i < numJunk)
 	{
-		auto const depth = _stack.size() - i - 1;
 		if (std::holds_alternative<ssa::JunkSlot>(_stack.data()[i]))
 		{
 			// we have a block of i junk slots at the bottom
@@ -66,14 +406,8 @@ void junkShuffler(StackLayoutGenerator::StackType& _stack)
 		if (std::holds_alternative<ssa::JunkSlot>(_stack.top()))
 		{
 			// todo it might be cheaper to swap or to pop
-			/*// if we can reach the non-junk slot, swap it up, else pop the junk
-			if (depth <= 16)
-			{
-				_stack.swap(depth);
-				++i;
-				continue;
-			}
-			else*/
+			// if we can reach the non-junk slot, swap it up, else pop the junk
+
 			{
 				_stack.pop();
 				--numJunk;
@@ -81,41 +415,22 @@ void junkShuffler(StackLayoutGenerator::StackType& _stack)
 			}
 		}
 
-		// find the next best junk to swap to the top:
-		//   - if there is a junk slot in reach that is in isolation, ie, surrounded by non-junk, take that one
-		//   - otherwise, if just take whatever junk slot is in reach
-		//   - if none is in reach, give up and break
-		std::optional<size_t> nonIsolatedJunk(std::nullopt);
-		std::optional<size_t> isolatedJunk(std::nullopt);
+		// find the next best junk
+		std::optional<size_t> junk(std::nullopt);
 		for (size_t junkDepth = 1; junkDepth < std::min(static_cast<size_t>(17), _stack.size()); ++junkDepth)
 			if (std::holds_alternative<ssa::JunkSlot>(_stack.slot(junkDepth)))
 			{
-				bool isolated = !std::holds_alternative<ssa::JunkSlot>(_stack.slot(junkDepth - 1));
-				if (junkDepth + 1 < _stack.size())
-					isolated &= !std::holds_alternative<ssa::JunkSlot>(_stack.slot(junkDepth + 1));
-
-				if (isolated)
-				{
-					isolatedJunk = junkDepth;
-					break;
-				}
-
-				if (!nonIsolatedJunk)
-					nonIsolatedJunk = junkDepth;
+				junk = junkDepth;
+				break;
 			}
 
-		if (isolatedJunk)
+		if (junk)
 		{
-			_stack.swap(*isolatedJunk);
+			_stack.swap(*junk);
 			continue;
 		}
 
-		if (nonIsolatedJunk)
-		{
-			_stack.swap(*nonIsolatedJunk);
-			continue;
-		}
-
+		// give up if there's no more junk in reach
 		break;
 	}
 }
@@ -344,6 +659,9 @@ void StackLayoutGenerator::visitBlock(SSACFG::BlockId const& _blockId)
 	{
 		SSACFG::Operation const& operation = block.operations[operationIndex];
 		SSACFGLiveness::LivenessData opLiveOut = operationsLiveOut[operationIndex];
+		auto opLiveOutWithoutOutputs = opLiveOut;
+		for (auto const& output: operation.outputs)
+			opLiveOutWithoutOutputs.erase(output);
 
 		if constexpr(debugOutput)
 		{
@@ -372,32 +690,30 @@ void StackLayoutGenerator::visitBlock(SSACFG::BlockId const& _blockId)
 		{
 			return std::holds_alternative<JunkSlot>(_target) || _source == _target;
 		};
-		/*auto const fun = [&](Slot const& _slot) -> bool
-		{
-			if (auto const* valueId = std::get_if<SSACFG::ValueId>(&_slot))
-				return !liveOutWithoutOutputsSet.contains(*valueId);
-			return false;
-		};*/
-		// auto tail = _stack.data();
 
 		for (size_t depth = 0; depth < stack.size(); ++depth)
 			if (!liveOutWithoutOutputsSet.contains(stack.slot(depth)) && ranges::find(requiredStackTop, stack.slot(depth)) == ranges::end(requiredStackTop))
 				stack.declareJunk(depth);
-		junkShuffler(stack);
+		// junkShuffler(stack);*/
 
-		if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_blockId))
+		// declareJunk(stack, opLiveOutWithoutOutputs );
+		if constexpr(debugOutput)
+			std::cout << "{ " << stackToString(std::vector(liveOutWithoutOutputs.begin(), liveOutWithoutOutputs.end()), m_cfg) << " } + " << stackToString(requiredStackTop, m_cfg) << ")" << std::flush;
+		OperationForwardShuffler<>::shuffle(stack, requiredStackTop, opLiveOutWithoutOutputs, m_junkBlockFinder.blockAllowsAdditionOfJunk(_blockId));
+		/*if (!m_junkBlockFinder.blockAllowsAdditionOfJunk(_blockId))
 		{
 			if constexpr(debugOutput)
-				std::cout << "{ " << stackToString(std::vector(liveOutWithoutOutputs.begin(), liveOutWithoutOutputs.end()), m_cfg) << " } + " << stackToString(requiredStackTop, m_cfg) << ")\n";
+				std::cout << "{ " << stackToString(std::vector(liveOutWithoutOutputs.begin(), liveOutWithoutOutputs.end()), m_cfg) << " } + " << stackToString(requiredStackTop, m_cfg) << ")";
 			DanielShuffler<StackType>::shuffle(stack, liveOutWithoutOutputsSet, requiredStackTop);
 		}
 		else
 		{
 			if constexpr(debugOutput)
-				std::cout << "{ " << stackToString(pileOfJunk<Slot>(junkTailSize(stack.data())), m_cfg) << " } + " << stackToString(requiredStackTop, m_cfg) << ")\n";
+				std::cout << "{ " << stackToString(pileOfJunk<Slot>(junkTailSize(stack.data())), m_cfg) << " } + " << stackToString(requiredStackTop, m_cfg) << ")";
 			auto const v = stack.data() | ranges::views::transform([&](auto const& _slot) -> Slot { return liveOutWithoutOutputsSet.contains(_slot) ? _slot : JunkSlot{}; }) | ranges::to<std::vector<Slot>>;
 			DanielShuffler<StackType>::shuffle(stack, {}, v + requiredStackTop);
-		}
+		}*/
+
 
 		m_stackLayout[_blockId].operationIn.push_back(currentStackData);
 
@@ -405,6 +721,9 @@ void StackLayoutGenerator::visitBlock(SSACFG::BlockId const& _blockId)
 			stack.pop();
 		for (auto const& val: operation.outputs)
 			stack.push(val);
+
+		if constexpr(debugOutput)
+			fmt::print(" -> {}\n", stackToString(currentStackData, m_cfg));
 	}
 
 	if (auto const* cjump = std::get_if<SSACFG::BasicBlock::ConditionalJump>(&block.exit))
